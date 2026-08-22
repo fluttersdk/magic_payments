@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+// `StoreBillingService` now reaches this file through the barrel, which the
+// completed public surface exports; the direct import it used to need became
+// redundant the moment the barrel was finished. The io driver is still imported
+// directly, because this file is about that arm specifically.
 import 'package:magic_payments/magic_payments.dart';
-import 'package:magic_payments/src/contracts/store_billing_service.dart';
 import 'package:magic_payments/src/drivers/billing_service_io.dart';
 
 /// The `GET /billing` body, envelope included.

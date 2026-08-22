@@ -2,9 +2,13 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
+// The barrel supplies the contracts AND the factory's three creator functions,
+// which is why neither is imported directly any more: it exports
+// `billing_service_factory.dart` and nothing else of the four driver files, so
+// the unprefixed names below are the factory's copies by construction. The two
+// ARM files stay prefixed, because each arm declares the same three names and
+// the point of this file is to tell them apart.
 import 'package:magic_payments/magic_payments.dart';
-import 'package:magic_payments/src/contracts/store_billing_service.dart';
-import 'package:magic_payments/src/drivers/billing_service_factory.dart';
 import 'package:magic_payments/src/drivers/billing_service_io.dart' as io;
 import 'package:magic_payments/src/drivers/billing_service_stub.dart' as stub;
 

@@ -1,0 +1,64 @@
+# magic_payments install manifest (PluginInstaller DSL schema v1).
+#
+# WHOLLY declarative, unlike magic_notifications' hybrid manifest. That sibling
+# keeps only its static slice here and drives the rest from a fluent override in
+# the command, because four things its OneSignal flow needs are outside the v1
+# schema: fail-fast UUID validation before staging, prompts gated on a platform
+# selection, an arbitrary web/ file write, and a head-script injection guarded
+# for idempotency.
+#
+# This plugin needs none of the four. It publishes one config file, registers one
+# provider and wires one config factory, and the schema expresses all three, so
+# `payments:install` parses this file and hands it straight to ManifestInstaller
+# with nothing of its own to add. Anything the schema could express and the
+# command did instead would be a second place to look for the install plan.
+#
+# There is no `prompts:` block, and that is a decision rather than an omission:
+# every value in the published config has a correct default (see the stub), so a
+# prompt would only ask the operator to retype `platform`.
+#
+# See doc/install_yaml_schema.md (in fluttersdk_artisan) for the full schema.
+
+plugin_name: magic_payments
+
+publish:
+  # ManifestInstaller resolves this stub through the CONSUMER's
+  # .dart_tool/package_config.json to find THIS package's assets/stubs/, then
+  # stages a transactional write. So the stub is resolved by path and needs no
+  # `flutter: assets:` block in pubspec.yaml.
+  install/payments_config: lib/config/payments.dart
+
+magic:
+  # Injects `import 'package:magic_payments/magic_payments.dart';` plus
+  # `(app) => PaymentsServiceProvider(app),` into the consumer's
+  # lib/config/app.dart providers list. Idempotent: ConfigEditor skips the write
+  # when the code is already in the file, so a re-install cannot duplicate it.
+  provider: PaymentsServiceProvider
+
+  # Injects `() => paymentsConfig,` into lib/main.dart's configFactories, with
+  # the import taken from the PUBLISHED path above (`config/payments.dart`)
+  # rather than from this package's barrel, because that is where the symbol
+  # lands. Also idempotent.
+  config_factory: paymentsConfig
+
+post_install:
+  message: |
+    Magic Payments installed. Next steps:
+
+    1. Run `flutter pub get`.
+
+    2. Review lib/config/payments.dart. One key, `driver`, and `platform` is
+       the right value unless you registered your own driver through
+       `Payments.extend(name, factory)`.
+
+    3. Point your app's API at the billing endpoints this package reads:
+       GET /billing, /billing/plans, /billing/usage, /billing/invoices,
+       /billing/payment-method, and for the web rail POST /billing/checkout,
+       /billing/swap, /billing/cancel plus GET /billing/portal.
+
+    4. Verify the install:  dart run <app>:artisan payments:doctor
+
+    Note: the provider and main.dart edits are written synchronously by the
+    install helpers and are NOT rolled back on a later failure. If install
+    reports an error after they landed, inspect lib/config/app.dart and
+    lib/main.dart before re-running.

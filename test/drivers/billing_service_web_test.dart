@@ -1,7 +1,16 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic/magic.dart';
-import 'package:magic_payments/magic_payments.dart';
-import 'package:magic_payments/src/contracts/store_billing_service.dart';
+// The barrel exports the FACTORY's copies of the three creator functions, and
+// the group below is about the WEB ARM's copies, which it imports directly a
+// line down. Both are deliberate, and every conditional-import arm declaring the
+// same three names is the design rather than an accident, so the collision is
+// resolved here at the one call site that wants the arm rather than by renaming
+// anything.
+import 'package:magic_payments/magic_payments.dart'
+    hide
+        createBillingService,
+        createStoreBillingService,
+        createWebBillingService;
 import 'package:magic_payments/src/drivers/billing_service_web.dart';
 
 /// The `GET /billing` body, envelope included.

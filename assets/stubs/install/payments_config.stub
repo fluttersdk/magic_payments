@@ -1,0 +1,17 @@
+/// Magic Payments configuration.
+///
+/// ONE root, `payments`, and one key inside it. Which RAIL this build can serve
+/// is deliberately NOT configured here: that answer comes from the conditional
+/// import in the package's billing service factory, so a key claiming to enable
+/// or disable Stripe or a store would be a SECOND answer to a question the
+/// import graph already settles, and two answers eventually disagree. A
+/// subscription bought on an iPhone is still managed in the App Store when the
+/// customer opens the web app, and only the entitlement knows that.
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    // Which driver PaymentsManager resolves. `platform` defers to the
+    // conditional-import factory, which is what an app wants unless it
+    // registered a driver of its own through `Payments.extend(name, factory)`.
+    'driver': 'platform',
+  },
+};
