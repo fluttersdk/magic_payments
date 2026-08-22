@@ -371,7 +371,12 @@ void main() {
       // Guard against a vacuous pass: the stripper must have left the code it
       // was pointed at, or an empty string would satisfy every assertion below.
       expect(source, contains('class BillingServiceIo'));
-      expect(source, contains('currentEntitlement('));
+
+      // This used to anchor on `currentEntitlement(`, which is no longer in this
+      // file: the five reads moved into the shared mixin once the review found
+      // them duplicated byte for byte in the web arm. The mixin clause is the
+      // fact that now carries them, so it is what the guard reads.
+      expect(source, contains('with BillingReadsOverHttp'));
 
       expect(
         _writeMethodDeclaration

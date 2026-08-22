@@ -6,10 +6,7 @@ import '../contracts/store_billing_service.dart';
 import '../contracts/web_billing_service.dart';
 import '../exceptions/billing_exception.dart';
 import '../models/billing_checkout_session.dart';
-import '../models/billing_entitlement.dart';
-import '../models/billing_invoices_page.dart';
-import '../models/payment_method.dart';
-import '../models/usage_stat.dart';
+import 'billing_reads_over_http.dart';
 
 /// The web build's driver: the five reads, plus the WEB RAIL's four writes, over
 /// the vendor's own `api/v1`.
@@ -55,7 +52,9 @@ import '../models/usage_stat.dart';
 ///   );
 /// }
 /// ```
-class BillingServiceWeb implements BillingService, WebBillingService {
+class BillingServiceWeb
+    with BillingReadsOverHttp
+    implements BillingService, WebBillingService {
   /// Creates a [BillingServiceWeb].
   const BillingServiceWeb();
 
@@ -205,118 +204,10 @@ class BillingServiceWeb implements BillingService, WebBillingService {
     return portalUrl;
   }
 
-  // ---------------------------------------------------------------------------
-  // BillingService: the five reads
-  // ---------------------------------------------------------------------------
-
-  @override
-  Future<BillingEntitlement> currentEntitlement() async {
-    final MagicResponse response = await Http.get('/billing');
-    if (!response.successful) {
-      Log.error(
-        '[BillingServiceWeb.currentEntitlement] ${response.errorMessage}',
-      );
-      throw BillingException(
-        response.errorMessage ?? 'Failed to load the billing entitlement.',
-      );
-    }
-
-    final Object? raw = response.data is Map<String, dynamic>
-        ? (response.data as Map<String, dynamic>)['data']
-        : null;
-    if (raw is! Map<String, dynamic>) {
-      throw const BillingException('Malformed billing entitlement response.');
-    }
-
-    return BillingEntitlement.fromMap(raw);
-  }
-
-  @override
-  Future<List<Map<String, dynamic>>> getPlans() async {
-    final MagicResponse response = await Http.get('/billing/plans');
-    if (!response.successful) {
-      Log.error('[BillingServiceWeb.getPlans] ${response.errorMessage}');
-      throw BillingException(
-        response.errorMessage ?? 'Failed to load the plan catalog.',
-      );
-    }
-
-    final Object? raw = response.data is Map<String, dynamic>
-        ? (response.data as Map<String, dynamic>)['data']
-        : null;
-    if (raw is! List) {
-      throw const BillingException('Malformed plan catalog response.');
-    }
-
-    // Rows verbatim: a tier's own fields are the vendor's product, and the
-    // consumer already owns the type it decodes them into.
-    return raw.whereType<Map<String, dynamic>>().toList();
-  }
-
-  @override
-  Future<List<UsageStat>> getUsage() async {
-    final MagicResponse response = await Http.get('/billing/usage');
-    if (!response.successful) {
-      Log.error('[BillingServiceWeb.getUsage] ${response.errorMessage}');
-      throw BillingException(response.errorMessage ?? 'Failed to load usage.');
-    }
-
-    // The usage body is FLAT: the metered resources sit at the top level, with
-    // no `data` envelope to unwrap. Unwrapping one here would read an empty map
-    // and report zero usage against every cap.
-    final Object? data = response.data;
-    if (data is! Map<String, dynamic>) {
-      throw const BillingException('Malformed usage response.');
-    }
-
-    return UsageStat.fromWireMap(data);
-  }
-
-  @override
-  Future<BillingInvoicesPage> getInvoices({String? cursor}) async {
-    final MagicResponse response = await Http.get(
-      '/billing/invoices',
-      query: cursor == null ? null : {'cursor': cursor},
-    );
-    if (!response.successful) {
-      Log.error('[BillingServiceWeb.getInvoices] ${response.errorMessage}');
-      throw BillingException(
-        response.errorMessage ?? 'Failed to load invoices.',
-      );
-    }
-
-    // The page decoder reads both `data` and `next_cursor`, so it takes the
-    // whole body rather than the unwrapped rows.
-    final Object? data = response.data;
-    if (data is! Map<String, dynamic>) {
-      throw const BillingException('Malformed invoices response.');
-    }
-
-    return BillingInvoicesPage.fromMap(data);
-  }
-
-  @override
-  Future<PaymentMethod> getPaymentMethod() async {
-    final MagicResponse response = await Http.get('/billing/payment-method');
-    if (!response.successful) {
-      Log.error(
-        '[BillingServiceWeb.getPaymentMethod] ${response.errorMessage}',
-      );
-      throw BillingException(
-        response.errorMessage ?? 'Failed to load the payment method.',
-      );
-    }
-
-    // Flat like the usage body, and soft-failed by the producer: a rail outage
-    // arrives as a 200 with every field null, so a resolved value does not imply
-    // a card and must not be reported as an error.
-    final Object? data = response.data;
-    if (data is! Map<String, dynamic>) {
-      throw const BillingException('Malformed payment method response.');
-    }
-
-    return PaymentMethod.fromMap(data);
-  }
+  // The five BillingService reads come from [BillingReadsOverHttp], shared with
+  // the io arm. They lived here too, byte for byte, until the review that split
+  // them out: only one arm compiles per target, so nothing this package can run
+  // was able to see the two copies drift apart.
 }
 
 /// Creates the [BillingService] implementation for a web build.
