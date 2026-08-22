@@ -1,6 +1,8 @@
 import 'package:magic/magic.dart';
 
 import '../contracts/billing_service.dart';
+import '../contracts/store_billing_service.dart';
+import '../contracts/web_billing_service.dart';
 import '../exceptions/billing_exception.dart';
 import '../models/billing_entitlement.dart';
 import '../models/billing_invoices_page.dart';
@@ -149,3 +151,21 @@ class BillingServiceIo implements BillingService {
 /// one of the two files. Renaming either would break the arm that is not being
 /// compiled, which no analyzer run on this platform would show.
 BillingService createBillingService() => const BillingServiceIo();
+
+/// Resolves the WEB rail for a `dart:io` build, which never has one.
+///
+/// A phone does not bill a card through a hosted web checkout, and a desktop
+/// build of this arm has no such surface either. `null` rather than a throwing
+/// implementation is the whole point of the rail split: the caller asks whether
+/// the rail exists and does not render the button, instead of rendering one that
+/// fails when tapped, which is the shape this driver used to ship.
+WebBillingService? createWebBillingService() => null;
+
+/// Resolves the STORE rail for a `dart:io` build.
+///
+/// `null` today and truthfully so: iOS and Android are exactly the platforms
+/// that WILL have this rail, but until a store implementation exists here, a
+/// non-null answer would be this package claiming a purchase path it cannot
+/// serve. The step that wires RevenueCat is the step that changes this line, and
+/// nothing about a caller has to change with it.
+StoreBillingService? createStoreBillingService() => null;
