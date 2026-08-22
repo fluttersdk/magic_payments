@@ -47,8 +47,14 @@ has to answer for every rail, even when its own answer to two of them is `null`.
 | Arm | `createBillingService()` | `createWebBillingService()` | `createStoreBillingService()` |
 |-----|---------------------------|------------------------------|-------------------------------|
 | Web (`dart.library.html`) | `BillingServiceWeb` | `BillingServiceWeb` | `null` |
-| Io (`dart.library.io`) | `BillingServiceIo` | `null` | `null` (until a store driver lands) |
+| Io (`dart.library.io`) | `BillingServiceIo` | `null` | `RevenueCatStoreService` on iOS and Android, `null` elsewhere |
 | Stub (default) | `BillingServiceStub` | `null` | `null` |
+
+The io arm's answer is the only one that is not decided by the import alone. `dart.library.io` is also
+satisfied on macOS, Windows and Linux, none of which has StoreKit or Play Billing, so that arm asks
+the device question at runtime (`Platform.isIOS || Platform.isAndroid`) before handing back a rail.
+The store rail needs configuration the other two do not: see
+[Configuration](../getting-started/configuration.md).
 
 `PaymentsServiceProvider.boot()` calls these three functions once and hands the results to
 `PaymentsManager`, which is what makes `Payments.web` and `Payments.store` resolve to a real rail or

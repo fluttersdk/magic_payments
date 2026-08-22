@@ -98,9 +98,13 @@ class PaymentsManager {
 
   /// The STORE rail, or `null` where this build cannot serve one.
   ///
-  /// `null` on every arm until a store driver ships, which is the truthful
-  /// answer: a non-null rail would be this package claiming a purchase path it
-  /// cannot honour.
+  /// Non-null on iOS and Android, where the RevenueCat driver serves it, and
+  /// `null` everywhere else: on web and on the stub arm there is no store to
+  /// reach, and on macOS, Windows and Linux `dart.library.io` is satisfied
+  /// without StoreKit or Play Billing being present.
+  ///
+  /// `null` is not an error and must not be logged as one, exactly as for
+  /// [web]. It is the answer a caller acts on before it offers a purchase.
   StoreBillingService? get store => _optional<StoreBillingService>(storeRole);
 
   /// Registers [factory] as the implementation of [role], replacing whatever

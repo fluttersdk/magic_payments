@@ -44,8 +44,13 @@ WebBillingService? createWebBillingService() => impl.createWebBillingService();
 
 /// Resolves the STORE rail, or `null` where this build cannot serve one.
 ///
-/// `null` on every arm today, and that is a truthful answer rather than a
-/// placeholder: no arm ships a store implementation yet, so no build may render
-/// a store purchase affordance.
+/// The web and stub arms answer `null`, because neither has a store to reach.
+/// The io arm delegates to `createStoreRail()`, which returns the RevenueCat
+/// driver on iOS and Android and `null` on macOS, Windows and Linux: those three
+/// satisfy `dart.library.io` and have no StoreKit or Play Billing, so the device
+/// question cannot be answered by the conditional import alone.
+///
+/// A `null` here is therefore "this build cannot serve a store", and a caller
+/// checks it instead of offering a purchase and catching a refusal.
 StoreBillingService? createStoreBillingService() =>
     impl.createStoreBillingService();
