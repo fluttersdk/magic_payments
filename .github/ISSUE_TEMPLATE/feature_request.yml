@@ -1,0 +1,62 @@
+name: Feature Request
+description: Suggest a new feature or enhancement for Magic Payments Plugin
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for the payments plugin? We'd love to hear it. If the idea
+        is a new billing rail, say which store or processor and what its
+        entitlement model looks like, because that is what decides whether it
+        fits behind the existing contract.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The Problem
+      description: What are you unable to do today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - A new billing rail
+        - PaymentsManager or the contracts
+        - Models or value objects
+        - Service provider / config
+        - CLI (install, configure, doctor)
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: sketch
+    attributes:
+      label: API Sketch
+      description: |
+        Optional, but it helps. For example:
+
+        class PaddleDriver implements WebBillingService {
+          @override
+          Future<CheckoutSession> checkout({required String plan}) async { ... }
+        }
+      render: dart
+
+  - type: textarea
+    id: usecase
+    attributes:
+      label: Use Case
+      placeholder: "When selling to customers in a region Stripe does not cover, I need..."
+    validations:
+      required: true

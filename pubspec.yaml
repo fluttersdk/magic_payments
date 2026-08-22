@@ -1,0 +1,37 @@
+name: magic_payments
+description: Multi-rail billing for the Magic Framework. One entitlement contract over Stripe on the web and store in-app purchase on mobile.
+version: 0.0.1
+homepage: https://magic.fluttersdk.com/payments
+documentation: https://magic.fluttersdk.com/packages/payments/getting-started/installation
+repository: https://github.com/fluttersdk/magic_payments
+issue_tracker: https://github.com/fluttersdk/magic_payments/issues
+
+topics:
+  - payments
+  - billing
+  - in-app-purchase
+  - magic-framework
+  - flutter-plugin
+
+# Inherited from `magic`, not chosen here: magic 0.0.6 declares
+# `sdk: ">=3.11.0 <4.0.0"` and `flutter: ">=3.41.0"`, and a package cannot
+# resolve below its own dependency's floor. Copying the older block from a
+# sibling plugin would produce a pubspec that claims support it does not have.
+environment:
+  sdk: ">=3.11.0 <4.0.0"
+  flutter: ">=3.41.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  magic: ^0.0.6
+  # ^0.0.13 rather than the ^0.0.8 a sibling still declares. A 0.0.x caret pins
+  # the PATCH, so ^0.0.8 resolves exactly 0.0.8, and this package's CI has no
+  # path override to hide that: it would build against a five-release-old CLI.
+  fluttersdk_artisan: ^0.0.13
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: ^1.25.0
+  flutter_lints: ^6.0.0

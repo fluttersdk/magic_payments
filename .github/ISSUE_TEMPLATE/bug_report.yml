@@ -1,0 +1,102 @@
+name: Bug Report
+description: Report a bug in Magic Payments Plugin
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Billing bugs are easier to fix with the rail named,
+        so please say which one you were on.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What went wrong?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: |
+        For example:
+        1. Register `PaymentsServiceProvider` in config
+        2. Call `Payments.checkout(plan: 'pro')` on web
+        3. Observe the entitlement after the webhook lands
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: rail
+    attributes:
+      label: Rail
+      description: Which billing rail was in use?
+      options:
+        - Web (Stripe)
+        - App Store (iOS)
+        - Play Store (Android)
+        - Not rail-specific
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Module
+      options:
+        - PaymentsManager (Singleton, resolution)
+        - Contracts (BillingService and the rail contracts)
+        - Drivers (web, store)
+        - Models (entitlement, plan, receipt)
+        - Service provider / config
+        - CLI (install, configure, doctor)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal Reproduction Code
+      description: The smallest snippet that shows the problem.
+      render: dart
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Magic Payments Version
+      placeholder: "0.0.1"
+    validations:
+      required: true
+
+  - type: input
+    id: magic-version
+    attributes:
+      label: Magic Framework Version
+      placeholder: "0.0.6"
+    validations:
+      required: true
+
+  - type: input
+    id: flutter-version
+    attributes:
+      label: Flutter Version
+      placeholder: "3.41.0"
+    validations:
+      required: true
