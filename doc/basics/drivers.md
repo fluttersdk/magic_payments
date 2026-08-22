@@ -56,6 +56,26 @@ the device question at runtime (`Platform.isIOS || Platform.isAndroid`) before h
 The store rail needs configuration the other two do not: see
 [Configuration](../getting-started/configuration.md).
 
+### The five reads are shared, and a test keeps them that way
+
+`BillingServiceWeb` and `BillingServiceIo` both take `BillingReadsOverHttp`, a mixin in a file with
+no platform import of its own. The five reads are identical by nature rather than by coincidence:
+they call the same `api/v1` endpoints and decode the same bodies, because the backend is the
+authority on an entitlement whichever rail sold the subscription.
+
+They were duplicated in both arms until a review measured them at 106 lines differing by a single
+line wrap, and the duplication was invisible to every gate this package has. A conditional import
+compiles exactly ONE arm per target, so no analyze run and no passing test on any platform could
+observe the two copies disagreeing: a fix applied to the web arm's envelope handling would simply
+leave the same bug shipping on mobile, silently.
+
+`test/drivers/billing_reads_over_http_test.dart` therefore asserts the structure rather than the
+behaviour: the mixin declares all five, NEITHER driver declares one of its own, and the mixin carries
+no platform seam. If you add a read, add it there.
+
+The log prefix comes from `runtimeType`, so a line still names the concrete driver that made the call
+(`[BillingServiceWeb.getUsage]`) rather than naming the mixin.
+
 `PaymentsServiceProvider.boot()` calls these three functions once and hands the results to
 `PaymentsManager`, which is what makes `Payments.web` and `Payments.store` resolve to a real rail or
 to `null` without a single `kIsWeb` check anywhere above the factory. See

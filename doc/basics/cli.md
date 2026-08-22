@@ -65,7 +65,67 @@ A health check over the plugin's installation and configuration state, in the sa
 
 ```bash
 dart run magic_payments doctor
+dart run magic_payments doctor --verbose
 ```
+
+Five checks, each of which reads a file in your project and can come back false, then the config
+state it actually read:
+
+```
+Magic Payments, doctor report
+==================================================
+
+Dependency declared: ✓
+Dependency resolved: ✓
+Config published: ✓
+Provider registered: ✓
+Config factory wired: ✓
+
+Config state:
+  driver: 'platform'
+  store rail key: blank
+    note: iOS and Android builds read 'payments.revenuecat.public_sdk_key' and
+    throw at purchase time without it. Web and desktop builds never read it.
+
+✓ Every check passed.
+```
+
+`--verbose` adds the path and the requirement behind each check, so a false line names the file to
+open rather than leaving you to guess which of the five it meant.
+
+### The store rail key is REPORTED, not enforced
+
+`store rail key` answers `absent`, `blank` or `declared`, and none of them fails the command.
+
+That is deliberate rather than lenient. This command runs on your laptop and cannot know which
+platform you will ship: a web-only or desktop-only app is CORRECT without the key, and failing on it
+would turn a sound project red. But the alternative measured on a real consumer was worse, because
+the driver throws under a customer's finger on the purchase sheet when the key is missing, and doctor
+used to pass in silence while that was true. So it reports, with the consequence attached.
+
+- `absent` means no `revenuecat` block was published at all.
+- `blank` means the block is there with every platform arm empty, which is the state a project ships
+  in first.
+- `declared` means at least one arm carries a value. One is enough: a project that filled in iOS and
+  not Android has configured the key, and which arms it needs is not this command's business.
+
+The value is read as TEXT, with comments stripped first, and never evaluated. The published stub
+resolves the key per platform through `defaultTargetPlatform` (see
+[Configuration](../getting-started/configuration.md)), so what sits on disk is Dart source rather
+than a literal.
+
+> [!NOTE]
+> Comment-stripping is not cosmetic. Before it, a reminder like
+> `// TODO: paste the key from the 'RevenueCat' dashboard` put a quoted word inside the value block,
+> the check answered `declared`, and the report went green on a rail that could not be configured.
+
+### What it deliberately does NOT report
+
+It does not say which RAIL your builds can serve. That answer lives behind a conditional import, so
+the only value a pure-Dart CLI process could read is the one for its OWN compilation, which is the
+`dart:io` arm every time regardless of what you build for. Printing that would be a confident wrong
+answer about the one thing this package exists to get right, so it is absent rather than
+approximated. See [Drivers](./drivers.md).
 
 ---
 
