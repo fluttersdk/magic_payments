@@ -205,6 +205,50 @@ Map<String, dynamic> get paymentsConfig => {
       expect(output, isNot(contains('throw at purchase time')));
     });
 
+    test('a comment inside the block is not mistaken for the key', () async {
+      // The shape a real project produces on the way to filling this in. The
+      // first version of this check read raw source, so the quoted word in the
+      // comment counted as a value and doctor went green on a rail that could
+      // not be configured, which is the silent pass it exists to remove.
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      // TODO: paste the key from the 'RevenueCat' dashboard
+      'public_sdk_key': switch (defaultTargetPlatform) {
+        TargetPlatform.iOS => '',
+        _ => '',
+      },
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'blank');
+
+      final (_, output) = await run();
+      expect(output, contains('store rail key: blank'));
+    });
+
+    test('a value wrapped onto its own line still reads as declared', () async {
+      // The other direction of the same brittleness: the terminator used to be
+      // "the next quote", which a wrapped value hits immediately.
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key':
+          'appl_a_real_key',
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'declared');
+    });
+
     test('no revenuecat block at all reads as absent', () async {
       File(at('lib/config/payments.dart')).writeAsStringSync('''
 Map<String, dynamic> get paymentsConfig => {

@@ -155,31 +155,41 @@ class DoctorCommand extends ArtisanCommand {
       return 'absent';
     }
 
-    final String content = FileHelper.readFile(_abs(_configPath));
+    // Comments FIRST. Without this a reminder to oneself counts as the key:
+    // `// TODO: paste the key from the 'RevenueCat' dashboard` puts a non-empty
+    // quoted literal inside the value block, the check answers `declared`, and
+    // the report goes quietly green on a rail that cannot be configured, which
+    // is the exact failure this method exists to remove. The in-package
+    // precedent is `test/drivers/billing_reads_over_http_test.dart`, which
+    // strips for the same reason.
+    final String content = FileHelper.readFile(_abs(_configPath))
+        .replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '')
+        .replaceAll(RegExp(r'^\s*//.*$', multiLine: true), '');
+
     if (!content.contains("'public_sdk_key'")) {
       return 'absent';
     }
 
-    // Every quoted value that follows the key, across however many platform
-    // arms the consumer wrote. One non-empty arm is enough to call it declared:
-    // a project that filled in iOS and not Android has configured the key, and
-    // which arms it needs is not this command's business.
-    final Iterable<RegExpMatch> values = RegExp(
-      "'public_sdk_key'\\s*:([\\s\\S]{0,400}?)(?:\\n\\s*'|\\n\\s*\\})",
-    ).allMatches(content);
+    // From the key to the NEXT SIBLING KEY, which is the only unambiguous
+    // terminator here: an earlier version stopped at the next quote, so a value
+    // the consumer had wrapped onto its own line terminated the match at offset
+    // zero and read as blank.
+    final RegExpMatch? block = RegExp(
+      "'public_sdk_key'\\s*:([\\s\\S]*?)(?:\\n\\s*'[a-z_]+'\\s*:|\\n\\s*\\},?\\s*\\n)",
+    ).firstMatch(content);
 
-    for (final RegExpMatch match in values) {
-      final Iterable<RegExpMatch> literals = RegExp(
-        "'([^']*)'",
-      ).allMatches(match.group(1) ?? '');
-      if (literals.any(
-        (RegExpMatch l) => (l.group(1) ?? '').trim().isNotEmpty,
-      )) {
-        return 'declared';
-      }
+    if (block == null) {
+      return 'blank';
     }
 
-    return 'blank';
+    // One non-empty arm is enough. A project that filled in iOS and not Android
+    // has configured the key, and which arms it needs is not this command's
+    // business; guessing would be the same overreach as failing the check.
+    final bool anyFilled = RegExp("'([^']*)'")
+        .allMatches(block.group(1) ?? '')
+        .any((RegExpMatch l) => (l.group(1) ?? '').trim().isNotEmpty);
+
+    return anyFilled ? 'declared' : 'blank';
   }
 
   /// Everything wrong with the published config, empty when it is sound.
