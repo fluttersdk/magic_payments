@@ -8,6 +8,7 @@ import '../models/billing_entitlement.dart';
 import '../models/billing_invoices_page.dart';
 import '../models/payment_method.dart';
 import '../models/usage_stat.dart';
+import 'store_billing_service_factory.dart';
 
 /// The [BillingService] every build with `dart:io` resolves to: iOS, Android and
 /// desktop.
@@ -163,9 +164,9 @@ WebBillingService? createWebBillingService() => null;
 
 /// Resolves the STORE rail for a `dart:io` build.
 ///
-/// `null` today and truthfully so: iOS and Android are exactly the platforms
-/// that WILL have this rail, but until a store implementation exists here, a
-/// non-null answer would be this package claiming a purchase path it cannot
-/// serve. The step that wires RevenueCat is the step that changes this line, and
-/// nothing about a caller has to change with it.
-StoreBillingService? createStoreBillingService() => null;
+/// Delegated rather than answered here, and that delegation is the whole point:
+/// `dart.library.io` is true on macOS, Windows and Linux too, none of which has
+/// StoreKit or Play Billing, so this arm cannot hand a store driver back
+/// unconditionally. `createStoreRail` is where the device question is asked, and
+/// it still answers `null` on every platform without a store.
+StoreBillingService? createStoreBillingService() => createStoreRail();

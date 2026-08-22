@@ -398,15 +398,20 @@ void main() {
       );
     });
 
-    test('nothing in lib implements StoreBillingService yet', () {
+    test('exactly one class in lib implements StoreBillingService', () {
+      // The successor to a dated assertion. Until the RevenueCat driver landed
+      // this counted ZERO implementations; it counts ONE now, and the count is
+      // what still bites: a second class taking on the contract is a second
+      // purchase path, and the two would disagree about which account a purchase
+      // was attributed to.
       final List<File> dartFiles = Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
           .where((File file) => file.path.endsWith('.dart'))
           .toList();
 
-      // The sweep has to have swept something; an empty set satisfies isEmpty
-      // for the wrong reason.
+      // The sweep has to have swept something; an empty set satisfies a length
+      // assertion for the wrong reason.
       expect(dartFiles.length, greaterThan(5));
 
       final List<String> implementations = dartFiles
@@ -417,14 +422,9 @@ void main() {
           .map((File file) => file.path)
           .toList();
 
-      expect(
-        implementations,
-        isEmpty,
-        reason:
-            'The store rail is declared and not implemented on purpose. The '
-            'step that implements it against RevenueCat is the step that '
-            'retires this assertion.',
-      );
+      expect(implementations, [
+        'lib/src/drivers/revenuecat_store_service.dart',
+      ]);
     });
 
     test(

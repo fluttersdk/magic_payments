@@ -29,6 +29,11 @@ dependencies:
   # the PATCH, so ^0.0.8 resolves exactly 0.0.8, and this package's CI has no
   # path override to hide that: it would build against a five-release-old CLI.
   fluttersdk_artisan: ^0.0.13
+  # The STORE rail's SDK, and the only third-party billing dependency here. Its
+  # own floors (`sdk >=3.4.0`, `flutter >=3.22.0`) sit BELOW this package's, so
+  # adding it cannot drag the environment block down; the block above stays
+  # magic's.
+  purchases_flutter: ^10.9.1
 
 dev_dependencies:
   flutter_test:
