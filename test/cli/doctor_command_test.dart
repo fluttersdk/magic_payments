@@ -287,6 +287,44 @@ Map<String, dynamic> get paymentsConfig => {
       expect(command.storeKeyState(), 'declared');
     });
 
+    test('a ternary-valued key reads as declared', () async {
+      // The shape the previous terminator broke: it ended the capture at the
+      // first quoted token followed by a colon, which a ternary supplies itself
+      // (`? 'appl_x' :`), so a correctly configured project was reported blank
+      // with "throw at purchase time" under it. Fail-safe in direction, and
+      // still wrong.
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': defaultTargetPlatform == TargetPlatform.iOS
+          ? 'appl_real'
+          : 'goog_real',
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'declared');
+    });
+
+    test('a nested-map value is read to its own closing brace', () async {
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': {'ios': 'appl_real', 'android': ''}['ios'],
+      'subject_label': 'team',
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'declared');
+    });
+
     test('a value wrapped onto its own line still reads as declared', () async {
       // The other direction of the same brittleness: the terminator used to be
       // "the next quote", which a wrapped value hits immediately.

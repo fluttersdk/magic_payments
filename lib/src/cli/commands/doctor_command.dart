@@ -168,19 +168,9 @@ class DoctorCommand extends ArtisanCommand {
       return 'absent';
     }
 
-    // From the key to the NEXT SIBLING KEY, or to the close of the enclosing
-    // map. Two earlier versions of this terminator were too narrow in opposite
-    // directions: stopping at the next QUOTE read a value the consumer had
-    // wrapped onto its own line as blank, and requiring the next key to be
-    // `[a-z_]+` on a line of its own let `'entitlementId'` (RevenueCat's own
-    // spelling) and every single-line map run past the boundary and read the
-    // NEXT key's value as this one's.
-    final RegExpMatch? block = RegExp(
-      "'public_sdk_key'\\s*:([\\s\\S]*?)"
-      "(?:'[A-Za-z0-9_]+'\\s*:|\\}\\s*[,}]|\\n\\s*\\},?\\s*\\n)",
-    ).firstMatch(content);
+    final String? value = _valueSourceFor('public_sdk_key', content);
 
-    if (block == null) {
+    if (value == null) {
       return 'blank';
     }
 
@@ -188,10 +178,90 @@ class DoctorCommand extends ArtisanCommand {
     // has configured the key, and which arms it needs is not this command's
     // business; guessing would be the same overreach as failing the check.
     final bool anyFilled = RegExp("'([^']*)'")
-        .allMatches(block.group(1) ?? '')
+        .allMatches(value)
         .any((RegExpMatch l) => (l.group(1) ?? '').trim().isNotEmpty);
 
     return anyFilled ? 'declared' : 'blank';
+  }
+
+  /// The SOURCE TEXT of the value assigned to [key], or null when the key has
+  /// no value to read.
+  ///
+  /// A depth scan rather than a regex, and the three regexes it replaces are the
+  /// argument for it. Each had to guess where a Dart value ends, and every
+  /// widening of the guess broke a shape the previous one handled: stopping at
+  /// the next quote read a wrapped value as empty; requiring a sibling key of
+  /// `[a-z_]+` on its own line let a single-line map run past the boundary and
+  /// read the NEXT key's value as this one's; dropping the newline anchor to fix
+  /// that then let a TERNARY (`cond ? 'appl_x' : 'goog_y'`) end the capture at
+  /// its own first literal, so a correctly configured project read as blank.
+  ///
+  /// A value ends where Dart says it ends: at the first `,` or closing bracket
+  /// seen at depth zero, outside a string. That is one rule instead of a growing
+  /// alternation, and it holds for the switch the stub publishes, for a ternary,
+  /// for a nested map and for a whole config written on one line.
+  String? _valueSourceFor(String key, String source) {
+    final int keyAt = source.indexOf("'$key'");
+    if (keyAt < 0) {
+      return null;
+    }
+
+    final int colon = source.indexOf(':', keyAt + key.length + 2);
+    if (colon < 0) {
+      return null;
+    }
+
+    int depth = 0;
+    bool inSingle = false;
+    bool inDouble = false;
+
+    for (int i = colon + 1; i < source.length; i++) {
+      final String character = source[i];
+
+      if (character == r'\') {
+        i++;
+
+        continue;
+      }
+
+      if (character == "'" && !inDouble) {
+        inSingle = !inSingle;
+
+        continue;
+      }
+
+      if (character == '"' && !inSingle) {
+        inDouble = !inDouble;
+
+        continue;
+      }
+
+      if (inSingle || inDouble) {
+        continue;
+      }
+
+      if (character == '(' || character == '[' || character == '{') {
+        depth++;
+
+        continue;
+      }
+
+      if (character == ')' || character == ']' || character == '}') {
+        if (depth == 0) {
+          return source.substring(colon + 1, i);
+        }
+
+        depth--;
+
+        continue;
+      }
+
+      if (character == ',' && depth == 0) {
+        return source.substring(colon + 1, i);
+      }
+    }
+
+    return source.substring(colon + 1);
   }
 
   /// [source] with its Dart comments removed, including TRAILING ones.
