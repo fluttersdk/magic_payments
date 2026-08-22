@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:magic/magic.dart';
 
 import '../contracts/billing_service.dart';
@@ -26,6 +27,19 @@ import '../models/usage_stat.dart';
 /// `successUrl` when they are done, and from an external browser that return
 /// lands in the browser rather than back in the app.
 ///
+/// ## The seam, which is the part a future rail's driver copies
+///
+/// [launchHostedPage] is the only line in this class that reaches a platform
+/// channel, so it is marked `@visibleForTesting` and left overridable, and
+/// [openHostedPage] keeps the error translation ABOVE it. A test then subclasses
+/// this driver, overrides that one method, and exercises the shipped control
+/// flow: no third-party SDK is mocked, and no `launch` binding is needed to
+/// reach the failure paths.
+///
+/// A driver for a new rail marks the same kind of method the same way: the one
+/// that talks to StoreKit, to Play Billing or to a rail's SDK, with the
+/// translation left in the caller so a test can see it.
+///
 /// It carries no platform branch. Which build gets this class is the factory's
 /// answer, and it is also the whole availability answer for the web rail: this
 /// file is the only one whose `createWebBillingService()` returns a rail rather
@@ -44,6 +58,68 @@ import '../models/usage_stat.dart';
 class BillingServiceWeb implements BillingService, WebBillingService {
   /// Creates a [BillingServiceWeb].
   const BillingServiceWeb();
+
+  // ---------------------------------------------------------------------------
+  // The hosted-page seam
+  // ---------------------------------------------------------------------------
+
+  /// Opens a hosted billing page, translating whatever the platform raises.
+  ///
+  /// Both writes that mint a URL come through here, so the translation lives in
+  /// one place: a rail failure the customer caused and a platform failure the
+  /// device caused both reach the billing screen as a [BillingException] it
+  /// already knows how to show. Something already ours is rethrown unchanged,
+  /// because the producer's own refusal message is the one the customer needs to
+  /// read and wrapping it again would replace it.
+  ///
+  /// It is reachable in production and not defensive decoration: `Launch`
+  /// resolves a `LaunchService` out of the container, so a consumer app that
+  /// never registered `LaunchServiceProvider` raises a container error out of
+  /// [checkout], and a screen catching [BillingException] would not catch that.
+  Future<void> openHostedPage(String url) async {
+    try {
+      // `await`, not a bare call: the awaited future is what puts a rejection
+      // inside this try. Drop it and the future escapes, the catch clause never
+      // runs, and a write that opened nothing reports success.
+      final bool opened = await launchHostedPage(url);
+      if (!opened) {
+        // The other half of the same failure, and the half no `catch` can see:
+        // the launcher answers `false` instead of throwing. Reported as the same
+        // exception, because from the caller's side there is no difference worth
+        // distinguishing between "could not open" and "refused to open", and
+        // both must not read as a completed purchase step.
+        Log.error('[BillingServiceWeb.openHostedPage] launcher refused $url');
+        throw const BillingException('Failed to open the hosted billing page.');
+      }
+    } on BillingException {
+      rethrow;
+    } catch (error) {
+      Log.error('[BillingServiceWeb.openHostedPage] $error');
+      throw BillingException('Failed to open the hosted billing page. $error');
+    }
+  }
+
+  /// Hands [url] to the in-app browser. THE SEAM.
+  ///
+  /// Overridden in tests to stand in for the platform channel; see the class doc
+  /// for why the seam exists and what a new rail's driver copies from it.
+  ///
+  /// `LaunchMode.inAppWebView` rather than the facade's default external
+  /// browser: a hosted checkout returns the customer to `successUrl` when they
+  /// are done, and from an external browser that return lands in the browser
+  /// rather than back in the app.
+  /// Returns whether the page actually opened.
+  ///
+  /// The boolean is load-bearing rather than incidental, and returning `void`
+  /// here was a silent failure: `LaunchService.url` NEVER throws. It catches a
+  /// malformed URL, catches everything else, and answers `false`
+  /// (`magic/lib/src/launch/launch_service.dart:29-43`). So a discarded result
+  /// meant a customer tapped Upgrade, nothing opened, and the write above
+  /// reported success. The `catch` in [openHostedPage] could not have helped: an
+  /// answer of `false` is not an error being thrown.
+  @visibleForTesting
+  Future<bool> launchHostedPage(String url) =>
+      Launch.url(url, mode: LaunchMode.inAppWebView);
 
   // ---------------------------------------------------------------------------
   // WebBillingService: the four writes
@@ -74,7 +150,7 @@ class BillingServiceWeb implements BillingService, WebBillingService {
     }
 
     final BillingCheckoutSession session = BillingCheckoutSession.fromMap(data);
-    await Launch.url(session.checkoutUrl, mode: LaunchMode.inAppWebView);
+    await openHostedPage(session.checkoutUrl);
     return session;
   }
 
@@ -125,7 +201,7 @@ class BillingServiceWeb implements BillingService, WebBillingService {
       throw const BillingException('Malformed billing portal response.');
     }
 
-    await Launch.url(portalUrl, mode: LaunchMode.inAppWebView);
+    await openHostedPage(portalUrl);
     return portalUrl;
   }
 

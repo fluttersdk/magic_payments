@@ -13,6 +13,8 @@ import 'package:magic_payments/magic_payments.dart'
         createWebBillingService;
 import 'package:magic_payments/src/drivers/billing_service_web.dart';
 
+import '../test_helper.dart';
+
 /// The `GET /billing` body, envelope included.
 ///
 /// Copied from the producer (`SubscriptionResource::toArray()` under the
@@ -140,7 +142,7 @@ const Map<String, dynamic> _storeOwnedConflictBody = {
 
 void main() {
   late FakeNetworkDriver network;
-  late _RecordingLaunchAdapter launcher;
+  late RecordingLaunchAdapter launcher;
 
   setUp(() {
     // Both bindings are load-bearing rather than tidy. Every method logs before
@@ -149,14 +151,13 @@ void main() {
     // `launch` on their success path, so an unbound one would fail the happy
     // path for the wrong reason too.
     Log.fake();
-    launcher = _RecordingLaunchAdapter();
-    Magic.app.setInstance('launch', LaunchService(adapter: launcher));
+    launcher = bindLaunchFacade();
   });
 
   tearDown(() {
     Http.unfake();
     Log.unfake();
-    Magic.app.removeInstance('launch');
+    unbindLaunchFacade();
   });
 
   group('BillingServiceWeb serves both the reads and the web rail', () {
@@ -611,27 +612,136 @@ void main() {
       },
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // The hosted-page seam, and the error translation above it
+  //
+  // `launchHostedPage` is the only line in this driver that reaches
+  // `url_launcher`, so it is the marked seam, and `openHostedPage`'s try/catch
+  // is the contract these tests assert: anything the platform raises becomes a
+  // BillingException the billing screen can show, and something already ours
+  // reaches the caller unchanged rather than being wrapped twice.
+  //
+  // The seam is what a future rail's driver copies. The fake below overrides ONE
+  // method of the real driver; it does not mock `url_launcher`, and the control
+  // flow under test is the shipped one.
+  // ---------------------------------------------------------------------------
+
+  group('BillingServiceWeb translates what the hosted-page seam raises', () {
+    test('a raw platform failure becomes a BillingException', () async {
+      // The reachable production case: `Launch` resolves a `LaunchService` out
+      // of the container, so a consumer that never registered
+      // LaunchServiceProvider gets a raw container error out of `checkout()`,
+      // and a screen catching BillingException would not catch it.
+      //
+      // Regression guard for a bare `launchHostedPage(url);`: an unawaited
+      // future completes after the try has exited, so the catch clause never
+      // sees the error at all and the write reports success.
+      Http.fake({'/billing/checkout': Http.response(_checkoutBody)});
+      final _FakeHostedPageDriver driver = _FakeHostedPageDriver(
+        raising: StateError('no in-app browser on this device'),
+      );
+
+      await expectLater(
+        driver.checkout(
+          plan: 'pro',
+          successUrl: 'https://example.com/ok',
+          cancelUrl: 'https://example.com/no',
+        ),
+        throwsA(isA<BillingException>()),
+      );
+    });
+
+    test('a BillingException from below is rethrown unchanged', () async {
+      // The same instance, not merely the same type: wrapping it again would
+      // replace the producer's own refusal with this driver's generic message,
+      // and the producer's is the one the customer needs to read.
+      Http.fake({'/billing/portal': Http.response(_portalBody)});
+      const BillingException original = BillingException(
+        'This subscription is managed by the store that sold it.',
+      );
+      final _FakeHostedPageDriver driver = _FakeHostedPageDriver(
+        raising: original,
+      );
+
+      await expectLater(driver.openPortal(), throwsA(same(original)));
+    });
+
+    test('a launcher that declines is a failure, not a silent success', () async {
+      // The failure a `catch` can never see. `LaunchService.url` answers `false`
+      // for a malformed URL or any platform refusal and never throws
+      // (`magic/lib/src/launch/launch_service.dart:29-43`), so before the seam
+      // returned a bool this path resolved normally: the customer tapped
+      // Upgrade, nothing opened, and checkout reported a session.
+      Http.fake({'/billing/checkout': Http.response(_checkoutBody)});
+      final _FakeHostedPageDriver driver = _FakeHostedPageDriver(opens: false);
+
+      await expectLater(
+        driver.checkout(
+          plan: 'pro',
+          successUrl: 'https://example.com/ok',
+          cancelUrl: 'https://example.com/no',
+        ),
+        throwsA(isA<BillingException>()),
+      );
+
+      // The URL really was handed to the seam: this is a refusal to open, not a
+      // failure to try, which is what makes the guard the right place for it.
+      expect(driver.opened, hasLength(1));
+    });
+
+    test('both hosted pages open through the seam and nothing else', () async {
+      // The `launch` binding is removed first, so this cannot pass by falling
+      // through to the facade: the seam is the driver's only route to the
+      // platform channel, which is what makes overriding it enough.
+      Http.fake({
+        '/billing/checkout': Http.response(_checkoutBody),
+        '/billing/portal': Http.response(_portalBody),
+      });
+      unbindLaunchFacade();
+      final _FakeHostedPageDriver driver = _FakeHostedPageDriver();
+
+      await driver.checkout(
+        plan: 'pro',
+        successUrl: 'https://example.com/ok',
+        cancelUrl: 'https://example.com/no',
+      );
+      await driver.openPortal();
+
+      expect(driver.opened, [
+        _checkoutBody['checkout_url'],
+        _portalBody['portal_url'],
+      ]);
+      expect(launcher.launched, isEmpty);
+    });
+  });
 }
 
-/// A [LaunchAdapter] that records instead of launching.
+/// A [BillingServiceWeb] with the in-app browser stood in for.
 ///
-/// The driver's two hosted-page calls go through magic's `Launch` facade, which
-/// resolves a [LaunchService] out of the container, so the seam a test can hold
-/// is the adapter underneath it. Recording the MODE as well as the URL is the
-/// point: `externalApplication` would open a real browser and lose the customer.
-class _RecordingLaunchAdapter implements LaunchAdapter {
-  /// Every launch attempt, URL and mode both, in order.
-  final List<(Uri, LaunchMode)> launched = [];
+/// Only the seam is replaced. The envelope handling, the guards and the
+/// try/catch under test are the driver's own.
+class _FakeHostedPageDriver extends BillingServiceWeb {
+  _FakeHostedPageDriver({this.raising, this.opens = true});
+
+  /// Raised from the seam, or null to record the URL and answer [opens].
+  final Object? raising;
+
+  /// What the seam answers when it does not raise.
+  ///
+  /// Separate from [raising] because the two are genuinely different failures:
+  /// a platform channel that throws, and a launcher that declines and says so
+  /// with a `false`. Only the first would ever reach a `catch`.
+  final bool opens;
+
+  /// Every URL the driver asked the seam to open, in order.
+  final List<String> opened = [];
 
   @override
-  Future<bool> launch(
-    Uri url, {
-    LaunchMode mode = LaunchMode.externalApplication,
-  }) async {
-    launched.add((url, mode));
-    return true;
+  Future<bool> launchHostedPage(String url) async {
+    if (raising != null) throw raising!;
+    opened.add(url);
+
+    return opens;
   }
-
-  @override
-  Future<bool> canLaunch(Uri url) async => true;
 }

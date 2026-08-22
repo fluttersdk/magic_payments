@@ -1,20 +1,17 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:magic/magic.dart';
 import 'package:magic_payments/magic_payments.dart';
+
+import '../test_helper.dart';
 
 void main() {
   setUp(() {
-    MagicApp.reset();
-    MagicApp.instance.singleton('log', LogManager.new);
-    PaymentsManager().forgetDrivers();
+    resetPaymentsState();
+    bindLogFacade();
   });
 
-  tearDown(() {
-    PaymentsManager().forgetDrivers();
-    MagicApp.reset();
-  });
+  tearDown(resetPaymentsState);
 
   group('every member reaches the manager', () {
     test('the facade and the manager answer with the same objects', () {
