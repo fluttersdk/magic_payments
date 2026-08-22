@@ -231,6 +231,62 @@ Map<String, dynamic> get paymentsConfig => {
       expect(output, contains('store rail key: blank'));
     });
 
+    test('a TRAILING comment is not mistaken for the key either', () async {
+      // The first strip only removed a comment that WAS the whole line, so a
+      // note written after the code survived it and its quoted word landed
+      // inside the value block. This is at least as likely a placement as the
+      // one above, and it produced the same silent green on a rail that cannot
+      // be configured.
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': switch (defaultTargetPlatform) {
+        TargetPlatform.iOS => '', // paste the 'appl_' key from the dashboard
+        _ => '',
+      },
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'blank');
+    });
+
+    test('a sibling key that is not lowercase still ends the block', () async {
+      // The terminator only recognised `[a-z_]+`, so a key carrying a capital or
+      // a digit did not end the capture and the NEXT key's value was read as
+      // this one's. `entitlementId` is RevenueCat's own spelling, so this is the
+      // name a consumer is most likely to add here.
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': '',
+      'entitlementId': 'pro',
+    },
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'blank');
+    });
+
+    test('a single-line map is read, not reported as blank', () async {
+      // Both terminators required a preceding newline, so a config written on
+      // one line matched neither and a filled key read as blank. The mirror of
+      // the wrapped-value bug, in the other direction.
+      File(at('lib/config/payments.dart')).writeAsStringSync(
+        "Map<String, dynamic> get paymentsConfig => "
+        "{'payments': {'driver': 'platform', "
+        "'revenuecat': {'public_sdk_key': 'appl_x'}}};\n",
+      );
+
+      expect(command.storeKeyState(), 'declared');
+    });
+
     test('a value wrapped onto its own line still reads as declared', () async {
       // The other direction of the same brittleness: the terminator used to be
       // "the next quote", which a wrapped value hits immediately.

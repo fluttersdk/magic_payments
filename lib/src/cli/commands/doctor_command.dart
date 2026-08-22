@@ -156,26 +156,28 @@ class DoctorCommand extends ArtisanCommand {
     }
 
     // Comments FIRST. Without this a reminder to oneself counts as the key:
-    // `// TODO: paste the key from the 'RevenueCat' dashboard` puts a non-empty
+    // `// paste the 'appl_' key from the RevenueCat dashboard` puts a non-empty
     // quoted literal inside the value block, the check answers `declared`, and
     // the report goes quietly green on a rail that cannot be configured, which
-    // is the exact failure this method exists to remove. The in-package
-    // precedent is `test/drivers/billing_reads_over_http_test.dart`, which
-    // strips for the same reason.
-    final String content = FileHelper.readFile(_abs(_configPath))
-        .replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '')
-        .replaceAll(RegExp(r'^\s*//.*$', multiLine: true), '');
+    // is the exact failure this method exists to remove.
+    final String content = _withoutComments(
+      FileHelper.readFile(_abs(_configPath)),
+    );
 
     if (!content.contains("'public_sdk_key'")) {
       return 'absent';
     }
 
-    // From the key to the NEXT SIBLING KEY, which is the only unambiguous
-    // terminator here: an earlier version stopped at the next quote, so a value
-    // the consumer had wrapped onto its own line terminated the match at offset
-    // zero and read as blank.
+    // From the key to the NEXT SIBLING KEY, or to the close of the enclosing
+    // map. Two earlier versions of this terminator were too narrow in opposite
+    // directions: stopping at the next QUOTE read a value the consumer had
+    // wrapped onto its own line as blank, and requiring the next key to be
+    // `[a-z_]+` on a line of its own let `'entitlementId'` (RevenueCat's own
+    // spelling) and every single-line map run past the boundary and read the
+    // NEXT key's value as this one's.
     final RegExpMatch? block = RegExp(
-      "'public_sdk_key'\\s*:([\\s\\S]*?)(?:\\n\\s*'[a-z_]+'\\s*:|\\n\\s*\\},?\\s*\\n)",
+      "'public_sdk_key'\\s*:([\\s\\S]*?)"
+      "(?:'[A-Za-z0-9_]+'\\s*:|\\}\\s*[,}]|\\n\\s*\\},?\\s*\\n)",
     ).firstMatch(content);
 
     if (block == null) {
@@ -190,6 +192,70 @@ class DoctorCommand extends ArtisanCommand {
         .any((RegExpMatch l) => (l.group(1) ?? '').trim().isNotEmpty);
 
     return anyFilled ? 'declared' : 'blank';
+  }
+
+  /// [source] with its Dart comments removed, including TRAILING ones.
+  ///
+  /// A `^\s*//` sweep is not enough and the difference is not academic: it only
+  /// removes a comment that IS the whole line, so
+  /// `TargetPlatform.iOS => '', // paste the 'appl_' key` survives it and the
+  /// quoted word in the note reads as a configured key. That placement is at
+  /// least as common as a comment on its own line.
+  ///
+  /// The scan is quote-aware rather than a regex, because the one thing it must
+  /// not do is cut a value in half: `'https://...'` contains the token it is
+  /// looking for. Escapes are skipped so `'it\'s'` does not flip the state.
+  ///
+  /// The sibling helper in `test/drivers/billing_reads_over_http_test.dart` uses
+  /// the simple sweep on purpose and is right to: it reads THIS package's own
+  /// source, where house style keeps comments on their own line. This method
+  /// reads a CONSUMER's file, which the package does not control, so borrowing
+  /// that shortcut across the boundary is what made it wrong here.
+  String _withoutComments(String source) {
+    final String withoutBlocks = source.replaceAll(
+      RegExp(r'/\*[\s\S]*?\*/'),
+      '',
+    );
+
+    return withoutBlocks.split('\n').map(_withoutLineComment).join('\n');
+  }
+
+  /// One line with any `//` comment outside a string literal removed.
+  String _withoutLineComment(String line) {
+    bool inSingle = false;
+    bool inDouble = false;
+
+    for (int i = 0; i < line.length; i++) {
+      final String character = line[i];
+
+      if (character == r'\') {
+        i++;
+
+        continue;
+      }
+
+      if (character == "'" && !inDouble) {
+        inSingle = !inSingle;
+
+        continue;
+      }
+
+      if (character == '"' && !inSingle) {
+        inDouble = !inDouble;
+
+        continue;
+      }
+
+      if (!inSingle &&
+          !inDouble &&
+          character == '/' &&
+          i + 1 < line.length &&
+          line[i + 1] == '/') {
+        return line.substring(0, i);
+      }
+    }
+
+    return line;
   }
 
   /// Everything wrong with the published config, empty when it is sound.
