@@ -130,6 +130,58 @@ class DoctorCommand extends ArtisanCommand {
     return match?.group(1);
   }
 
+  /// What the published config says about the STORE rail's SDK key.
+  ///
+  /// Three answers, because an honest report needs three. `absent` means no
+  /// `revenuecat` block was published at all, which is correct for a web-only or
+  /// desktop-only app and wrong for one that sells through a store. `blank`
+  /// means the block is there with every value left empty, which is the state a
+  /// project ships in first and the one that surfaces under a customer's finger
+  /// on the purchase sheet. `declared` means at least one non-empty value.
+  ///
+  /// Deliberately NOT part of {@see issues()}: this command runs on a laptop and
+  /// cannot know whether the app will ship to a store, so failing here would
+  /// turn a correct web-only project red. It is reported instead, because the
+  /// alternative measured on a real consumer was worse: a doctor that passed in
+  /// silence while the store rail could not be configured at all.
+  ///
+  /// Read as TEXT and never evaluated. The published stub resolves this key per
+  /// platform through `defaultTargetPlatform` (RevenueCat issues a separate
+  /// public key for each store), so what sits on disk is Dart source rather than
+  /// a literal. "Did somebody fill any of these in" is the only question this
+  /// layer can answer without guessing.
+  String storeKeyState() {
+    if (!configExists()) {
+      return 'absent';
+    }
+
+    final String content = FileHelper.readFile(_abs(_configPath));
+    if (!content.contains("'public_sdk_key'")) {
+      return 'absent';
+    }
+
+    // Every quoted value that follows the key, across however many platform
+    // arms the consumer wrote. One non-empty arm is enough to call it declared:
+    // a project that filled in iOS and not Android has configured the key, and
+    // which arms it needs is not this command's business.
+    final Iterable<RegExpMatch> values = RegExp(
+      "'public_sdk_key'\\s*:([\\s\\S]{0,400}?)(?:\\n\\s*'|\\n\\s*\\})",
+    ).allMatches(content);
+
+    for (final RegExpMatch match in values) {
+      final Iterable<RegExpMatch> literals = RegExp(
+        "'([^']*)'",
+      ).allMatches(match.group(1) ?? '');
+      if (literals.any(
+        (RegExpMatch l) => (l.group(1) ?? '').trim().isNotEmpty,
+      )) {
+        return 'declared';
+      }
+    }
+
+    return 'blank';
+  }
+
   /// Everything wrong with the published config, empty when it is sound.
   List<String> configIssues() {
     if (!configExists()) {
@@ -281,6 +333,21 @@ class DoctorCommand extends ArtisanCommand {
     } else {
       final String? driver = configuredDriver();
       out.writeln("  driver: ${driver == null ? '(absent)' : "'$driver'"}");
+
+      // The store rail's key, echoed with its consequence rather than asserted.
+      // A web-only app is correct without it, so this cannot be a failure; a
+      // store app without it throws under the customer's finger, so it cannot
+      // be silence either.
+      final String storeKey = storeKeyState();
+      out.writeln('  store rail key: $storeKey');
+      if (storeKey != 'declared') {
+        out.writeln(
+          '    note: iOS and Android builds read '
+          "'payments.revenuecat.public_sdk_key' and throw at purchase time "
+          'without it. Web and desktop builds never read it.',
+        );
+      }
+
       for (final String issue in configIssues()) {
         out.writeln('  ✗ $issue');
       }

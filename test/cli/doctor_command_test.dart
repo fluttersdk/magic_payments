@@ -155,6 +155,73 @@ Map<String, dynamic> get paymentsConfig => {
     });
   });
 
+  group('payments:doctor reports the store rail key without failing on it', () {
+    setUp(writeInstalledState);
+
+    test(
+      'the stub as published reads as blank, and says what that costs',
+      () async {
+        // The fixture IS `assets/stubs/install/payments_config.stub`, so this
+        // asserts the shipped stub rather than a copy of it: the block is present
+        // with every platform arm left empty, which is the state a real project
+        // ships in first.
+        expect(command.storeKeyState(), 'blank');
+
+        final (code, output) = await run();
+
+        // Still exit 0. A web-only or desktop-only app is CORRECT without this
+        // key, so failing here would turn a sound project red. The measured
+        // alternative was worse: a doctor that passed in silence while the store
+        // rail could not be configured at all.
+        expect(code, 0);
+        expect(output, contains('store rail key: blank'));
+        expect(output, contains('throw at purchase time'));
+      },
+    );
+
+    test('a filled key reads as declared and drops the note', () async {
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': switch (defaultTargetPlatform) {
+        TargetPlatform.iOS => 'appl_realkey',
+        TargetPlatform.android => '',
+        _ => '',
+      },
+    },
+  },
+};
+''');
+
+      // One filled arm is enough. A project that configured iOS and not Android
+      // has configured the key; which arms it needs is not this command's
+      // business, and guessing would be the same overreach as failing above.
+      expect(command.storeKeyState(), 'declared');
+
+      final (_, output) = await run();
+      expect(output, contains('store rail key: declared'));
+      expect(output, isNot(contains('throw at purchase time')));
+    });
+
+    test('no revenuecat block at all reads as absent', () async {
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+  },
+};
+''');
+
+      expect(command.storeKeyState(), 'absent');
+
+      final (code, output) = await run();
+      expect(code, 0);
+      expect(output, contains('store rail key: absent'));
+    });
+  });
+
   group('payments:doctor names what is missing', () {
     test('the config file, when install never ran', () async {
       final (code, output) = await run();

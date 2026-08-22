@@ -110,8 +110,9 @@ Payments.manager.extend('sandbox', (config) => SandboxBillingDriver(config));
 ```
 
 This is the seam a test uses to stand in for a driver without mocking a third-party SDK, and it is
-the seam a future store implementation would use to let a consumer swap it out. As of this version
-there is nothing to swap the store rail FOR, since none ships yet; see [Rails](./rails.md).
+how a consumer replaces the store rail: registering the store role puts your own
+`StoreBillingService` in front of `RevenueCatStoreService`, which is the supported way to sell
+through a mediator this package does not ship. See [Rails](./rails.md).
 
 ---
 

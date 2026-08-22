@@ -113,15 +113,18 @@ abstract class StoreBillingService {
 }
 ```
 
-> [!WARNING]
-> This contract exists in the package, but no driver implements it in this version.
-> `createStoreBillingService()` returns `null` on every build arm, web, mobile and the fallback
-> alike, so `Payments.store` is always `null` today. An app that offers a mobile purchase button
-> against this version of the package has built a button that can never render, because the rail is
-> genuinely absent, not merely quiet.
+`RevenueCatStoreService` implements it, and `Payments.store` is non-null on iOS and Android. It stays
+`null` on web, on desktop and on the fallback arm, so a purchase affordance must be gated on
+`Payments.store != null` and not on a platform check of your own.
 
-The shape is worth reading now even so, because the same non-promise applies once a store driver
-does exist:
+> [!WARNING]
+> Non-null does NOT mean configured. The driver reads
+> `payments.revenuecat.public_sdk_key` the first time it needs the SDK and throws a
+> `BillingException` when that key is blank or absent, because whether a device HAS a store and
+> whether you have supplied credentials for it are two different questions. See
+> [Configuration](../getting-started/configuration.md).
+
+The contract makes one non-promise, and it is the whole reason the store rail is separate:
 
 **A `true` from `purchase()` or `restore()` says the store reported a completed transaction. It says
 nothing about what `currentEntitlement()` will answer immediately afterwards.** A store purchase is
@@ -129,7 +132,6 @@ asynchronous, and the rail's own webhook is the authority on the entitlement, no
 tapped Buy. The vendor's backend may not have been told yet by the time the purchase call returns.
 
 ```dart
-// Once a store driver exists:
 final StoreBillingService? store = Payments.store;
 if (store != null) {
   final bool bought = await store.purchase(plan: 'pro');

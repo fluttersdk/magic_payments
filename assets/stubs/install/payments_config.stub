@@ -1,17 +1,49 @@
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform;
+
 /// Magic Payments configuration.
 ///
-/// ONE root, `payments`, and one key inside it. Which RAIL this build can serve
-/// is deliberately NOT configured here: that answer comes from the conditional
-/// import in the package's billing service factory, so a key claiming to enable
-/// or disable Stripe or a store would be a SECOND answer to a question the
-/// import graph already settles, and two answers eventually disagree. A
-/// subscription bought on an iPhone is still managed in the App Store when the
-/// customer opens the web app, and only the entitlement knows that.
+/// Which RAIL this build can serve is deliberately NOT configured here: that
+/// answer comes from the conditional import in the package's billing service
+/// factory, so a key claiming to enable or disable Stripe or a store would be a
+/// SECOND answer to a question the import graph already settles, and two answers
+/// eventually disagree. A subscription bought on an iPhone is still managed in
+/// the App Store when the customer opens the web app, and only the entitlement
+/// knows that.
+///
+/// What DOES belong here is credentials, because no import can supply them.
 Map<String, dynamic> get paymentsConfig => {
   'payments': {
     // Which driver PaymentsManager resolves. `platform` defers to the
     // conditional-import factory, which is what an app wants unless it
     // registered a driver of its own through `Payments.extend(name, factory)`.
     'driver': 'platform',
+
+    // The STORE rail's credentials, read by RevenueCatStoreService on iOS and
+    // Android. Nothing outside those two platforms reads this block, so leaving
+    // it as-is is correct for a web-only or desktop-only app.
+    'revenuecat': {
+      // RevenueCat issues a SEPARATE public SDK key per platform, `appl_...`
+      // for the App Store app and `goog_...` for the Play app, so this is
+      // resolved here rather than being one shared string. This file is Dart,
+      // not JSON, which is what makes that possible.
+      //
+      // `defaultTargetPlatform` rather than `Platform.isIOS`: `dart:io` is not
+      // available on web, and this config is compiled into every build.
+      //
+      // The key is PUBLIC. It ships inside the app bundle by design and is not
+      // a secret; the project's SECRET key belongs on your server and must
+      // never appear here. Leaving a value blank is refused at purchase time
+      // rather than silently: the driver logs and throws, so the failure names
+      // the missing key instead of surfacing as an SDK error far from its cause.
+      'public_sdk_key': switch (defaultTargetPlatform) {
+        TargetPlatform.iOS => '',
+        TargetPlatform.android => '',
+        _ => '',
+      },
+
+      // What the App User ID identifies, used in log lines so a support ticket
+      // reads "team 42" rather than a bare id. Optional.
+      'subject_label': 'team',
+    },
   },
 };

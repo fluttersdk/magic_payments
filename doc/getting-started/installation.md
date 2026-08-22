@@ -72,9 +72,8 @@ web rail to work. See [Service Provider](../architecture/service-provider.md) fo
 
 ## <a name="main-dart"></a>main.dart
 
-Magic Payments needs no config factory to boot: as of this version the package reads no key under
-its own config root at all. If you later add one under `payments.*`, register it in `Magic.init`
-the same way every other plugin config is registered:
+Register the published config the same way every other plugin config is registered. `payments:install`
+does this for you; the shape is here so you can check its work:
 
 ```dart
 void main() async {
@@ -83,7 +82,7 @@ void main() async {
   await Magic.init(
     configFactories: [
       () => appConfig,
-      // () => paymentsConfig, once (or if) this package defines one
+      () => paymentsConfig,
     ],
   );
 
@@ -91,7 +90,14 @@ void main() async {
 }
 ```
 
-See [Configuration](./configuration.md) for the current state of the `payments.*` namespace.
+The five READS and the web rail boot without a single key, so a web-only app whose factory is missing
+still works and `payments:doctor` is the only thing that notices. The STORE rail is different: it
+reads `payments.revenuecat.public_sdk_key` the first time it needs the SDK, so on iOS and Android an
+unregistered factory turns into a `BillingException` under the customer's finger on the purchase
+sheet.
+
+See [Configuration](./configuration.md) for every key and for why the store rail's key is resolved
+per platform.
 
 ---
 
