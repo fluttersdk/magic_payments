@@ -306,6 +306,38 @@ void main() {
 
       expect(method.renewalDate, isNull);
     });
+
+    test('decodes available: false as the rail could not be asked', () {
+      final PaymentMethod method = PaymentMethod.fromMap(const {
+        ..._paymentMethodWire,
+        'available': false,
+      });
+
+      expect(method.available, isFalse);
+    });
+
+    test('decodes available: true with a null last4 as genuinely no card on '
+        'file', () {
+      final PaymentMethod method = PaymentMethod.fromMap(const {
+        'available': true,
+        'last4': null,
+      });
+
+      expect(method.available, isTrue);
+      expect(method.last4, isNull);
+    });
+
+    test('reads an absent available key as null, not as false, so an older '
+        'backend is never told its rail is down', () {
+      final PaymentMethod method = PaymentMethod.fromMap(_paymentMethodWire);
+
+      expect(method.available, isNull);
+      expect(method.brand, 'visa');
+      expect(method.last4, '4242');
+      expect(method.expMonth, 8);
+      expect(method.expYear, 2027);
+      expect(method.renewalDate, DateTime.utc(2026, 6, 1));
+    });
   });
 
   group('UsageStat', () {

@@ -6,8 +6,9 @@ import 'package:flutter/foundation.dart';
 /// reading a card is the one billing call that dials the rail live, so the
 /// producer soft-fails a rail outage to an all-null payload with a 200. This
 /// value object therefore has to represent "no card on file" and "the rail did
-/// not answer" without throwing, and a caller wanting to tell those two apart
-/// reads its own request state, not these fields.
+/// not answer" without throwing. [available] is the producer's own answer to
+/// which of the two it was; a caller on a backend too old to send it falls back
+/// to reading its own request state.
 @immutable
 class PaymentMethod {
   /// Creates a [PaymentMethod].
@@ -17,6 +18,7 @@ class PaymentMethod {
     this.expMonth,
     this.expYear,
     this.renewalDate,
+    this.available,
   });
 
   /// The card network as the rail names it (e.g. `"visa"`), or `null` when no
@@ -45,6 +47,16 @@ class PaymentMethod {
   /// `Invoice.date`: date formatting is display copy the consumer owns.
   final DateTime? renewalDate;
 
+  /// Whether the rail could be asked for a card, in three states.
+  ///
+  /// `false` means the rail could not be asked (the read failed). `true` with
+  /// a `null` [last4] means the rail answered and there is genuinely no card
+  /// on file. `null` means this backend does not report the field at all,
+  /// which is what an adopter on an older release sends; a caller must not
+  /// read that as `false`, or every adopter on an older backend would see
+  /// their payment rail reported as down.
+  final bool? available;
+
   /// Decodes a [PaymentMethod] from the payment-method response.
   ///
   /// Every field may be `null`, both on a genuine "no card on file" state and on
@@ -62,6 +74,8 @@ class PaymentMethod {
       renewalDate: rawRenewalDate is String
           ? DateTime.tryParse(rawRenewalDate)
           : null,
+      // Tolerant decode: an absent key degrades to `null`, not `false`.
+      available: map['available'] as bool?,
     );
   }
 }
