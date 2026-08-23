@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 0.0.1
 
 First release of the package. Everything below is new, so this entry describes
 the shape rather than a diff.
@@ -56,6 +56,15 @@ the shape rather than a diff.
   key, so failing would turn a sound project red; but the driver throws under a
   customer's finger when it is missing, and passing in silence was measured on a
   real consumer and was worse. It reports, with the consequence attached.
+
+- **`PaymentMethod.available`, so a consumer stops guessing why a card is
+  missing.** Reading a card is the one billing call that dials the rail live, so
+  the producer soft-fails a rail outage into a 200 with every field null, which
+  is byte-identical to a customer who genuinely has no card. The field is the
+  producer's own answer to which of the two it was: `false` means the rail could
+  not be asked, `true` with a null `last4` means there is genuinely no card.
+  It decodes as `bool?` and an ABSENT key is null, never false, because a
+  backend too old to send it must not be reported as a rail that is down.
 
 - **Seven documentation pages** under `doc/`, covering installation,
   configuration, the rails, the drivers, the manager, the service provider and
