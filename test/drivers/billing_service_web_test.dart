@@ -99,8 +99,10 @@ const Map<String, dynamic> _invoicesBody = {
   'next_cursor': 'eyJpZCI6ImluXzFQOXhRMiJ9',
 };
 
-/// The `GET /billing/payment-method` body, FLAT like the usage one.
+/// The `GET /billing/payment-method` body, FLAT like the usage one, with all
+/// six keys the producer emits.
 const Map<String, dynamic> _paymentMethodBody = {
+  'available': true,
   'renewal_date': '2026-09-01T12:00:00.000Z',
   'brand': 'visa',
   'last4': '4242',
@@ -323,6 +325,10 @@ void main() {
         expect(method.expMonth, 8);
         expect(method.expYear, 2027);
         expect(method.renewalDate, DateTime.utc(2026, 9, 1, 12));
+        // The field a consumer gates its "we could not reach the payment
+        // provider" copy on, asserted here and not only on the value object,
+        // because this is the only place the flat-body read is exercised.
+        expect(method.available, isTrue);
       },
     );
 
