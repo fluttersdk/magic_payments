@@ -67,7 +67,12 @@ rendering one and catching a refusal.
 ```dart
 final web = Payments.web;
 if (web != null) {
-  await web.checkout(plan: 'pro', successUrl: '...', cancelUrl: '...');
+  await web.checkout(
+    plan: 'pro',
+    cycle: BillingCycle.annual,
+    successUrl: '...',
+    cancelUrl: '...',
+  );
 }
 ```
 

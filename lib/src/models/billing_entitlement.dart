@@ -1,22 +1,23 @@
 import 'package:flutter/foundation.dart';
 
+import '../enums/billing_cycle.dart';
 import '../enums/billing_provider.dart';
 import '../enums/manage_via.dart';
 import '../enums/plan_status.dart';
 
 /// What the customer is entitled to, and where they manage it.
 ///
-/// The thirteen fields mirror the entitlement wire one for one, in its
+/// The fourteen fields mirror the entitlement wire one for one, in its
 /// rail-neutral vocabulary: nothing here names a payment rail's own dialect
 /// except [providerStatus], which is debug text and must never reach a gate or
 /// a computed field.
 ///
-/// FIVE of the thirteen are non-null guaranteed by the producer, and this
+/// FIVE of the fourteen are non-null guaranteed by the producer, and this
 /// decoder relies on it: [plan], [planStatus], [subscribed], [provider] and
-/// [manageVia]. The other eight are nullable, four of them on the Stripe rail BY
+/// [manageVia]. The other nine are nullable, four of them on the Stripe rail BY
 /// DESIGN rather than by accident: [manageUrl] and [gracePeriodEndsAt] have no
 /// Stripe source at all, and [providerStatus] and [productId] stay null until a
-/// rail writes them. A decoder that defaulted any of the eight would claim a
+/// rail writes them. A decoder that defaulted any of the nine would claim a
 /// state no rail has reported, which is a different sentence from "not
 /// reported".
 ///
@@ -43,6 +44,7 @@ class BillingEntitlement {
     this.planStatus = PlanStatus.none,
     this.subscribed = false,
     this.renews,
+    this.cycle,
     this.provider = BillingProvider.none,
     this.providerStatus,
     this.productId,
@@ -74,6 +76,20 @@ class BillingEntitlement {
   /// Nullable on purpose: `null` means no rail has said, which is not the claim
   /// `false` makes.
   final bool? renews;
+
+  /// How often the customer is charged, or `null` when no rail has said.
+  ///
+  /// This is what the customer BOUGHT, resolved server-side from the price their
+  /// subscription is on. It is not the cycle a screen happens to be displaying,
+  /// and the two are easy to conflate: a catalogue toggle changes which figure a
+  /// card shows and changes nothing about the charge.
+  ///
+  /// Null is a real state and has to be rendered as one. It covers a customer on
+  /// no rail, a tier the vendor prices only one way and never mapped, and a
+  /// producer too old to report the field. Defaulting it to either member would
+  /// put a billing claim on screen that nothing verified, which is exactly the
+  /// defect [BillingCycle] exists to close.
+  final BillingCycle? cycle;
 
   /// Which rail granted the entitlement.
   final BillingProvider provider;
@@ -133,6 +149,7 @@ class BillingEntitlement {
       planStatus: PlanStatus.fromWire(map['plan_status'] as String?),
       subscribed: (map['subscribed'] as bool?) ?? false,
       renews: map['renews'] as bool?,
+      cycle: BillingCycle.fromWire(map['cycle'] as String?),
       provider: BillingProvider.fromWire(map['provider'] as String?),
       providerStatus: map['provider_status'] as String?,
       productId: map['product_id'] as String?,

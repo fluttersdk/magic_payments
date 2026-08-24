@@ -4,6 +4,7 @@ import 'package:magic/magic.dart';
 import '../contracts/billing_service.dart';
 import '../contracts/store_billing_service.dart';
 import '../contracts/web_billing_service.dart';
+import '../enums/billing_cycle.dart';
 import '../exceptions/billing_exception.dart';
 import '../models/billing_checkout_session.dart';
 import 'billing_reads_over_http.dart';
@@ -47,6 +48,7 @@ import 'billing_reads_over_http.dart';
 /// if (web != null) {
 ///   await web.checkout(
 ///     plan: 'pro',
+///     cycle: BillingCycle.annual,
 ///     successUrl: 'https://example.com/billing?checkout=success',
 ///     cancelUrl: 'https://example.com/billing?checkout=cancel',
 ///   );
@@ -127,12 +129,18 @@ class BillingServiceWeb
   @override
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   }) async {
     final MagicResponse response = await Http.post(
       '/billing/checkout',
-      data: {'plan': plan, 'success_url': successUrl, 'cancel_url': cancelUrl},
+      data: {
+        'plan': plan,
+        'cycle': cycle.toWire(),
+        'success_url': successUrl,
+        'cancel_url': cancelUrl,
+      },
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.checkout] ${response.errorMessage}');
@@ -154,10 +162,10 @@ class BillingServiceWeb
   }
 
   @override
-  Future<void> swap({required String plan}) async {
+  Future<void> swap({required String plan, required BillingCycle cycle}) async {
     final MagicResponse response = await Http.post(
       '/billing/swap',
-      data: {'plan': plan},
+      data: {'plan': plan, 'cycle': cycle.toWire()},
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.swap] ${response.errorMessage}');

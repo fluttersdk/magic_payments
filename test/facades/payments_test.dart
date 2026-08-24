@@ -86,6 +86,7 @@ class _FakeWebRail implements WebBillingService {
   @override
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   }) => throw UnsupportedError('identity fake');
@@ -98,6 +99,6 @@ class _FakeWebRail implements WebBillingService {
       throw UnsupportedError('identity fake');
 
   @override
-  Future<void> swap({required String plan}) =>
+  Future<void> swap({required String plan, required BillingCycle cycle}) =>
       throw UnsupportedError('identity fake');
 }
