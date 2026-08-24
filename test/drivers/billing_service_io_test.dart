@@ -96,8 +96,10 @@ const Map<String, dynamic> _invoicesBody = {
   'next_cursor': 'eyJpZCI6ImluXzFQOXhRMiJ9',
 };
 
-/// The `GET /billing/payment-method` body, FLAT like the usage one.
+/// The `GET /billing/payment-method` body, FLAT like the usage one, with all
+/// six keys the producer emits.
 const Map<String, dynamic> _paymentMethodBody = {
+  'available': true,
   'renewal_date': '2026-09-01T12:00:00.000Z',
   'brand': 'visa',
   'last4': '4242',
@@ -281,16 +283,23 @@ void main() {
         expect(method.expMonth, 8);
         expect(method.expYear, 2027);
         expect(method.renewalDate, DateTime.utc(2026, 9, 1, 12));
+        // The field a consumer gates its "we could not reach the payment
+        // provider" copy on, asserted here and not only on the value object,
+        // because this is the only place the flat-body read is exercised.
+        expect(method.available, isTrue);
       },
     );
 
     test(
       'a soft-failed payment method resolves all-null instead of throwing',
       () async {
-        // The producer answers 200 with every field null when the rail is down, so
-        // a resolved value does not imply a card and must not imply an error.
+        // The producer answers 200 with every card field null when the rail is
+        // down, so a resolved value does not imply a card and must not imply an
+        // error. `available: false` is what separates it from the answered-but-
+        // empty body, which is byte-identical apart from that one key.
         network = Http.fake({
           '/billing/payment-method': Http.response({
+            'available': false,
             'renewal_date': null,
             'brand': null,
             'last4': null,
@@ -304,6 +313,7 @@ void main() {
 
         expect(method.brand, isNull);
         expect(method.renewalDate, isNull);
+        expect(method.available, isFalse);
       },
     );
 

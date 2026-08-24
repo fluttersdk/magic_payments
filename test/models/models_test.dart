@@ -53,9 +53,10 @@ const Map<String, dynamic> _invoiceWire = {
   'pdf_url': 'https://pay.stripe.com/invoice/in_1P2Qr3/pdf',
 };
 
-/// The `GET /billing/payment-method` payload, with all FIVE keys the
-/// controller emits on its success path.
+/// The `GET /billing/payment-method` payload, with all SIX keys the controller
+/// emits on its success path, in its order.
 const Map<String, dynamic> _paymentMethodWire = {
+  'available': true,
   'renewal_date': '2026-06-01T00:00:00.000Z',
   'brand': 'visa',
   'last4': '4242',
@@ -63,13 +64,41 @@ const Map<String, dynamic> _paymentMethodWire = {
   'exp_year': 2027,
 };
 
-/// The same endpoint's Stripe-outage soft-fail: a 200 with every field null.
+/// The same endpoint's answered-but-empty body: the rail WAS asked, it replied,
+/// and the team has no card stored. The renewal date survives because a team
+/// can be inside a trial with nothing on file.
+const Map<String, dynamic> _paymentMethodNoCardWire = {
+  'available': true,
+  'renewal_date': '2026-06-01T00:00:00.000Z',
+  'brand': null,
+  'last4': null,
+  'exp_month': null,
+  'exp_year': null,
+};
+
+/// The same endpoint's Stripe-outage soft-fail: a 200 whose card fields are all
+/// null and whose `available` says the rail could not be asked at all.
 const Map<String, dynamic> _paymentMethodOutageWire = {
+  'available': false,
   'renewal_date': null,
   'brand': null,
   'last4': null,
   'exp_month': null,
   'exp_year': null,
+};
+
+/// The five-key body a backend from before `available` existed still sends.
+///
+/// This is the shape that made the field necessary: without it the outage body
+/// above and the no-card body above it were byte-identical, so a Stripe outage
+/// read to the client as "no card on file". A consumer must read the absent key
+/// as "not reported" rather than as `false`.
+const Map<String, dynamic> _paymentMethodLegacyWire = {
+  'renewal_date': '2026-06-01T00:00:00.000Z',
+  'brand': 'visa',
+  'last4': '4242',
+  'exp_month': 8,
+  'exp_year': 2027,
 };
 
 /// The `GET /billing/usage` payload, with the three metered resources the
@@ -278,6 +307,7 @@ void main() {
     test('decodes the card the endpoint reported', () {
       final PaymentMethod method = PaymentMethod.fromMap(_paymentMethodWire);
 
+      expect(method.available, isTrue);
       expect(method.brand, 'visa');
       expect(method.last4, '4242');
       expect(method.expMonth, 8);
@@ -285,12 +315,13 @@ void main() {
       expect(method.renewalDate, DateTime.utc(2026, 6, 1));
     });
 
-    test('represents the Stripe-outage soft-fail as no card on file instead '
-        'of throwing', () {
+    test('represents the Stripe-outage soft-fail as a rail that could not be '
+        'asked, instead of throwing', () {
       final PaymentMethod method = PaymentMethod.fromMap(
         _paymentMethodOutageWire,
       );
 
+      expect(method.available, isFalse);
       expect(method.brand, isNull);
       expect(method.last4, isNull);
       expect(method.expMonth, isNull);
@@ -307,29 +338,28 @@ void main() {
       expect(method.renewalDate, isNull);
     });
 
-    test('decodes available: false as the rail could not be asked', () {
-      final PaymentMethod method = PaymentMethod.fromMap(const {
-        ..._paymentMethodWire,
-        'available': false,
-      });
+    /// The pair the whole field exists to separate. Both bodies below carry no
+    /// card, and only `available` says whether that is a fact or an unknown.
+    test('tells the answered-but-empty body apart from the outage body', () {
+      final PaymentMethod answered = PaymentMethod.fromMap(
+        _paymentMethodNoCardWire,
+      );
+      final PaymentMethod outage = PaymentMethod.fromMap(
+        _paymentMethodOutageWire,
+      );
 
-      expect(method.available, isFalse);
-    });
+      expect(answered.last4, outage.last4);
+      expect(answered.brand, outage.brand);
 
-    test('decodes available: true with a null last4 as genuinely no card on '
-        'file', () {
-      final PaymentMethod method = PaymentMethod.fromMap(const {
-        'available': true,
-        'last4': null,
-      });
-
-      expect(method.available, isTrue);
-      expect(method.last4, isNull);
+      expect(answered.available, isTrue);
+      expect(outage.available, isFalse);
     });
 
     test('reads an absent available key as null, not as false, so an older '
         'backend is never told its rail is down', () {
-      final PaymentMethod method = PaymentMethod.fromMap(_paymentMethodWire);
+      final PaymentMethod method = PaymentMethod.fromMap(
+        _paymentMethodLegacyWire,
+      );
 
       expect(method.available, isNull);
       expect(method.brand, 'visa');
@@ -337,6 +367,19 @@ void main() {
       expect(method.expMonth, 8);
       expect(method.expYear, 2027);
       expect(method.renewalDate, DateTime.utc(2026, 6, 1));
+    });
+
+    /// `as bool?` would throw here, and a throw out of this factory blanks the
+    /// billing screen's card rather than degrading one field of it.
+    test('leaves a non-bool available null rather than throwing out of a '
+        'decode path', () {
+      final PaymentMethod method = PaymentMethod.fromMap(const {
+        ..._paymentMethodLegacyWire,
+        'available': 1,
+      });
+
+      expect(method.available, isNull);
+      expect(method.last4, '4242');
     });
   });
 

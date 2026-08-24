@@ -66,6 +66,13 @@ class PaymentMethod {
     // throwing; the card itself still renders.
     final Object? rawRenewalDate = map['renewal_date'];
 
+    // Same treatment, and for a sharper reason: this decode runs on the billing
+    // screen's own read, so a TypeError here blanks the whole card instead of
+    // degrading one field. `as bool?` throws on a `1` or a `"false"`, which a
+    // rail behind a different serializer can send, and "not reported" is the
+    // honest reading of a value this object cannot interpret.
+    final Object? rawAvailable = map['available'];
+
     return PaymentMethod(
       brand: map['brand'] as String?,
       last4: map['last4'] as String?,
@@ -74,8 +81,9 @@ class PaymentMethod {
       renewalDate: rawRenewalDate is String
           ? DateTime.tryParse(rawRenewalDate)
           : null,
-      // Tolerant decode: an absent key degrades to `null`, not `false`.
-      available: map['available'] as bool?,
+      // An absent key degrades to `null`, not `false`: an adopter on an older
+      // backend must not be told its payment rail is down.
+      available: rawAvailable is bool ? rawAvailable : null,
     );
   }
 }
