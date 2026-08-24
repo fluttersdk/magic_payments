@@ -369,18 +369,25 @@ void main() {
       expect(method.renewalDate, DateTime.utc(2026, 6, 1));
     });
 
-    /// `as bool?` would throw here, and a throw out of this factory blanks the
-    /// billing screen's card rather than degrading one field of it.
-    test('leaves a non-bool available null rather than throwing out of a '
-        'decode path', () {
-      final PaymentMethod method = PaymentMethod.fromMap(const {
-        ..._paymentMethodLegacyWire,
-        'available': 1,
-      });
+    /// `as bool?` would throw on either of these, and a throw out of this
+    /// factory blanks the billing screen's card rather than degrading one field
+    /// of it. Both shapes are covered because the two are not the same mistake:
+    /// `1` is a rail serializing a boolean column, `'false'` is one serializing
+    /// everything as a string, and a reader might expect the second to be
+    /// coerced rather than dropped. It is dropped: a value this object cannot
+    /// interpret is "not reported", never `false`.
+    for (final Object raw in <Object>[1, 'false']) {
+      test('leaves a non-bool available ($raw) null rather than throwing out '
+          'of a decode path', () {
+        final PaymentMethod method = PaymentMethod.fromMap(<String, dynamic>{
+          ..._paymentMethodLegacyWire,
+          'available': raw,
+        });
 
-      expect(method.available, isNull);
-      expect(method.last4, '4242');
-    });
+        expect(method.available, isNull);
+        expect(method.last4, '4242');
+      });
+    }
   });
 
   group('UsageStat', () {
