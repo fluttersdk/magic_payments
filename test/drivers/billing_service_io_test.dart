@@ -21,6 +21,10 @@ const Map<String, dynamic> _entitlementBody = {
     'plan_status': 'active',
     'subscribed': true,
     'renews': true,
+    // `annual` rather than `monthly` on purpose: monthly is the first member of
+    // `BillingCycle`, so a decode that answered `values.first` for anything
+    // would look correct against it.
+    'cycle': 'annual',
     'provider': 'stripe',
     'provider_status': null,
     'product_id': null,
@@ -171,6 +175,7 @@ void main() {
         expect(entitlement.planStatus, PlanStatus.active);
         expect(entitlement.manageVia, ManageVia.portal);
         expect(entitlement.subscribed, isTrue);
+        expect(entitlement.cycle, BillingCycle.annual);
       },
     );
 

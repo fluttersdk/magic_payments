@@ -66,6 +66,30 @@ the shape rather than a diff.
   It decodes as `bool?` and an ABSENT key is null, never false, because a
   backend too old to send it must not be reported as a rail that is down.
 
+- **`BillingCycle`, because a tier is not a price.** A vendor selling `pro` at a
+  monthly rate and again at a discounted annual rate has one tier and two
+  prices, and three places have to agree which is in play: the catalogue shows a
+  figure, the checkout charges one, the renewal line names one. With no cycle on
+  the wire those answers come from three sources and disagree. Measured on a
+  consumer app against a live Stripe test account: the screen offered "Annual,
+  save ~15%" at $29/mo and Stripe charged $34.00 monthly, with the invoice and
+  the renewal date siding with Stripe.
+
+  So `WebBillingService.checkout` and `swap` both take a REQUIRED `cycle`, with
+  no default. A default would be the same defect wearing a type: the caller
+  showing an annual figure has to say annual, and the compiler is what makes
+  every call site say which. `BillingEntitlement.cycle` reports what the
+  customer actually bought, resolved server-side from the price their
+  subscription sits on, which is a different fact from whichever column a
+  catalogue toggle happens to be displaying.
+
+  It is the ONE vocabulary in this package with no fallback member:
+  `BillingCycle.fromWire` answers `null` rather than picking a side. Every other
+  enum here degrades to a `none` case because "no rail has said" is a state it
+  can express; monthly and annual are the only two cycles there are, so a
+  default is a claim about what somebody is being charged. Null means unknown
+  and a caller has to render it as unknown.
+
 - **Seven documentation pages** under `doc/`, covering installation,
   configuration, the rails, the drivers, the manager, the service provider and
   the CLI.

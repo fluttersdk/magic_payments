@@ -27,6 +27,10 @@ const Map<String, dynamic> _entitlementBody = {
     'plan_status': 'active',
     'subscribed': true,
     'renews': true,
+    // `annual` rather than `monthly` on purpose: monthly is the first member of
+    // `BillingCycle`, so a decode that answered `values.first` for anything
+    // would look correct against it.
+    'cycle': 'annual',
     'provider': 'stripe',
     'provider_status': null,
     'product_id': null,
@@ -207,6 +211,7 @@ void main() {
         expect(entitlement.planStatus, PlanStatus.active);
         expect(entitlement.manageVia, ManageVia.portal);
         expect(entitlement.subscribed, isTrue);
+        expect(entitlement.cycle, BillingCycle.annual);
       },
     );
 
@@ -366,6 +371,7 @@ void main() {
         final BillingCheckoutSession session = await const BillingServiceWeb()
             .checkout(
               plan: 'pro',
+              cycle: BillingCycle.annual,
               successUrl: 'https://example.com/billing?checkout=success',
               cancelUrl: 'https://example.com/billing?checkout=cancel',
             );
@@ -383,9 +389,18 @@ void main() {
         );
         // The wire keys are snake_case because the producer validates them by
         // that name; a camelCase payload is a 422 the client cannot see.
+        //
+        // `cycle` is asserted by VALUE and not merely by presence, because it
+        // decides which of the tier's prices is charged. A driver sending the
+        // wrong member, or the enum's `toString()` instead of its wire word,
+        // would satisfy a key check and bill the customer on the other price.
         expect(
           (network.recorded.single.$1.data as Map<String, dynamic>).keys,
-          containsAll(<String>['plan', 'success_url', 'cancel_url']),
+          containsAll(<String>['plan', 'cycle', 'success_url', 'cancel_url']),
+        );
+        expect(
+          (network.recorded.single.$1.data as Map<String, dynamic>)['cycle'],
+          'annual',
         );
         expect(session.checkoutUrl, _checkoutBody['checkout_url']);
         expect(session.sessionId, 'cs_test_a1b2c3');
@@ -410,6 +425,7 @@ void main() {
         await expectLater(
           const BillingServiceWeb().checkout(
             plan: 'pro',
+            cycle: BillingCycle.annual,
             successUrl: 'https://example.com/ok',
             cancelUrl: 'https://example.com/no',
           ),
@@ -438,6 +454,7 @@ void main() {
         await expectLater(
           const BillingServiceWeb().checkout(
             plan: 'pro',
+            cycle: BillingCycle.annual,
             successUrl: 'https://example.com/ok',
             cancelUrl: 'https://example.com/no',
           ),
@@ -449,23 +466,35 @@ void main() {
   });
 
   group('BillingServiceWeb swap and cancel', () {
-    test('swap posts the plan word, never a rail price id', () async {
-      network = Http.fake({'/billing/swap': Http.response(_subscriptionBody)});
+    test(
+      'swap posts the plan word and the cycle, never a rail price id',
+      () async {
+        network = Http.fake({
+          '/billing/swap': Http.response(_subscriptionBody),
+        });
 
-      await const BillingServiceWeb().swap(plan: 'business');
+        await const BillingServiceWeb().swap(
+          plan: 'business',
+          cycle: BillingCycle.monthly,
+        );
 
-      network.assertSent(
-        (MagicRequest request) =>
-            request.method == 'POST' &&
-            request.url == '/billing/swap' &&
-            request.data is Map<String, dynamic> &&
-            (request.data as Map<String, dynamic>)['plan'] == 'business',
-      );
-      expect((network.recorded.single.$1.data as Map<String, dynamic>), {
-        'plan': 'business',
-      });
-      expect(launcher.launched, isEmpty);
-    });
+        network.assertSent(
+          (MagicRequest request) =>
+              request.method == 'POST' &&
+              request.url == '/billing/swap' &&
+              request.data is Map<String, dynamic> &&
+              (request.data as Map<String, dynamic>)['plan'] == 'business',
+        );
+        // The WHOLE body, which is what pins the cycle: a driver that dropped it
+        // would still satisfy the predicate above, and the producer would then
+        // pick a price the caller never asked for.
+        expect((network.recorded.single.$1.data as Map<String, dynamic>), {
+          'plan': 'business',
+          'cycle': 'monthly',
+        });
+        expect(launcher.launched, isEmpty);
+      },
+    );
 
     test('cancel posts to /billing/cancel with no payload at all', () async {
       network = Http.fake({
@@ -515,7 +544,10 @@ void main() {
         });
 
         await expectLater(
-          const BillingServiceWeb().swap(plan: 'pro'),
+          const BillingServiceWeb().swap(
+            plan: 'pro',
+            cycle: BillingCycle.monthly,
+          ),
           throwsA(
             isA<BillingException>().having(
               (BillingException error) => error.message,
@@ -651,6 +683,7 @@ void main() {
       await expectLater(
         driver.checkout(
           plan: 'pro',
+          cycle: BillingCycle.annual,
           successUrl: 'https://example.com/ok',
           cancelUrl: 'https://example.com/no',
         ),
@@ -685,6 +718,7 @@ void main() {
       await expectLater(
         driver.checkout(
           plan: 'pro',
+          cycle: BillingCycle.annual,
           successUrl: 'https://example.com/ok',
           cancelUrl: 'https://example.com/no',
         ),
@@ -709,6 +743,7 @@ void main() {
 
       await driver.checkout(
         plan: 'pro',
+        cycle: BillingCycle.annual,
         successUrl: 'https://example.com/ok',
         cancelUrl: 'https://example.com/no',
       );

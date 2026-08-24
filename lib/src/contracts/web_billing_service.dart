@@ -1,3 +1,4 @@
+import '../enums/billing_cycle.dart';
 import '../models/billing_checkout_session.dart';
 
 /// Buying and managing a subscription on the WEB rail, where the vendor bills
@@ -20,6 +21,7 @@ import '../models/billing_checkout_session.dart';
 /// if (web != null) {
 ///   await web.checkout(
 ///     plan: 'pro',
+///     cycle: BillingCycle.annual,
 ///     successUrl: 'https://example.com/billing?checkout=success',
 ///     cancelUrl: 'https://example.com/billing?checkout=cancel',
 ///   );
@@ -33,17 +35,31 @@ abstract class WebBillingService {
   /// that named it would have to be re-released to change a price.
   /// [successUrl] and [cancelUrl] are the pages the hosted checkout returns to
   /// on completion and on abort.
+  ///
+  /// [cycle] picks WHICH of the tier's prices to charge, and it is required
+  /// rather than defaulted. A tier is not a price: a vendor selling `pro`
+  /// monthly and again at a discounted annual rate has two, and a call that
+  /// omitted the cycle would let the backend choose one while the screen showed
+  /// the other. That is not a hypothetical, it is the state this parameter was
+  /// added to end: a customer selecting an annual plan at its discounted figure
+  /// was charged the monthly price, because the cycle reached nothing. Naming it
+  /// at every call site is the point of having no default.
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   });
 
-  /// Moves the subscription to [plan], up or down, on the existing card.
+  /// Moves the subscription to [plan] on [cycle], up or down, on the existing
+  /// card.
   ///
   /// The rail prorates; this call does not ask which direction the move is,
-  /// because the answer changes nothing about the request.
-  Future<void> swap({required String plan});
+  /// because the answer changes nothing about the request. It does ask the
+  /// cycle, for the reason [checkout] gives: switching a customer from monthly
+  /// to annual on the same tier is a real move, and a swap that could not
+  /// express it would silently keep them on the price they were trying to leave.
+  Future<void> swap({required String plan, required BillingCycle cycle});
 
   /// Cancels the subscription.
   ///

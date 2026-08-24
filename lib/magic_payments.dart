@@ -35,6 +35,7 @@ export 'src/models/payment_method.dart';
 export 'src/models/usage_stat.dart';
 
 // Enums
+export 'src/enums/billing_cycle.dart';
 export 'src/enums/billing_provider.dart';
 export 'src/enums/plan_status.dart';
 export 'src/enums/manage_via.dart';

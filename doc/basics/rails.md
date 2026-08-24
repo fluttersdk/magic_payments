@@ -72,10 +72,11 @@ owns the type it wants to decode them into.
 abstract class WebBillingService {
   Future<BillingCheckoutSession> checkout({
     required String plan,
+    required BillingCycle cycle,
     required String successUrl,
     required String cancelUrl,
   });
-  Future<void> swap({required String plan});
+  Future<void> swap({required String plan, required BillingCycle cycle});
   Future<void> cancel();
   Future<String> openPortal({String? returnUrl});
 }
@@ -90,11 +91,18 @@ final WebBillingService? web = Payments.web;
 if (web != null) {
   await web.checkout(
     plan: 'pro',
+    cycle: BillingCycle.annual,
     successUrl: 'https://example.com/billing?checkout=success',
     cancelUrl: 'https://example.com/billing?checkout=cancel',
   );
 }
 ```
+
+`cycle` is required and has no default. A tier is not a price: a vendor selling `pro` monthly and
+again at a discounted annual rate has two, and a call that omitted the cycle would let the backend
+pick one while the screen showed the other. The producer resolves the price from the (tier, cycle)
+pair and refuses with a 422 when it has none mapped, which is how an adopter who sells only monthly
+learns that rather than having a customer quietly charged the wrong figure.
 
 A cancellation on this rail is normally end-of-period, not immediate: the entitlement it leaves
 behind still grants until `BillingEntitlement.currentPeriodEnd`. Re-read the entitlement rather than

@@ -13,6 +13,7 @@ const Map<String, dynamic> _storeEntitlementWire = {
   'plan_status': 'past_due',
   'subscribed': true,
   'renews': true,
+  'cycle': 'monthly',
   'provider': 'app_store',
   'provider_status': 'in_billing_retry_period',
   'product_id': 'com.uptizm.business.monthly',
@@ -31,6 +32,7 @@ const Map<String, dynamic> _stripeEntitlementWire = {
   'plan_status': 'trialing',
   'subscribed': true,
   'renews': null,
+  'cycle': null,
   'provider': 'stripe',
   'provider_status': null,
   'product_id': null,
@@ -111,7 +113,7 @@ const Map<String, dynamic> _usageWire = {
 
 void main() {
   group('BillingEntitlement.fromMap', () {
-    test('decodes the store rail\'s thirteen fields', () {
+    test('decodes the store rail\'s fourteen fields', () {
       final BillingEntitlement entitlement = BillingEntitlement.fromMap(
         _storeEntitlementWire,
       );
@@ -120,6 +122,7 @@ void main() {
       expect(entitlement.planStatus, PlanStatus.pastDue);
       expect(entitlement.subscribed, isTrue);
       expect(entitlement.renews, isTrue);
+      expect(entitlement.cycle, BillingCycle.monthly);
       expect(entitlement.provider, BillingProvider.appStore);
       expect(entitlement.providerStatus, 'in_billing_retry_period');
       expect(entitlement.productId, 'com.uptizm.business.monthly');
@@ -144,6 +147,9 @@ void main() {
       expect(entitlement.manageVia, ManageVia.portal);
       // Null means no rail has said, which is not the claim `false` makes.
       expect(entitlement.renews, isNull);
+      // Same for the cycle, and it matters more here: a default would put a
+      // billing figure on screen that nothing reported.
+      expect(entitlement.cycle, isNull);
       expect(entitlement.providerStatus, isNull);
       expect(entitlement.productId, isNull);
       expect(entitlement.manageUrl, isNull);

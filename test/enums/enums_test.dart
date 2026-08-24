@@ -170,4 +170,31 @@ void main() {
       expect(InvoiceStatus.fromWire('deleted'), InvoiceStatus.pending);
     });
   });
+
+  group('BillingCycle', () {
+    test('decodes both cycles and round-trips each one', () {
+      for (final BillingCycle cycle in BillingCycle.values) {
+        expect(
+          BillingCycle.fromWire(cycle.toWire()),
+          cycle,
+          reason: cycle.name,
+        );
+      }
+
+      expect(BillingCycle.monthly.toWire(), 'monthly');
+      expect(BillingCycle.annual.toWire(), 'annual');
+    });
+
+    test('answers null for an absent or unknown cycle, never a member', () {
+      // The one vocabulary here with no fallback member, and the assertion is
+      // the reason rather than the mechanism: monthly and annual are the only
+      // answers there are, so picking either for an unknown value states what a
+      // customer is being charged on no evidence. A screen that read a default
+      // as fact is what this type was added to stop.
+      expect(BillingCycle.fromWire(null), isNull);
+      expect(BillingCycle.fromWire('quarterly'), isNull);
+      expect(BillingCycle.fromWire(''), isNull);
+      expect(BillingCycle.fromWire('Monthly'), isNull);
+    });
+  });
 }
