@@ -68,6 +68,9 @@ class Payments {
       billing.getInvoices(cursor: cursor);
 
   /// Reads the card on file and the next renewal date.
+  ///
+  /// Gate the copy on [PaymentMethod.available], not on a null `last4`: a rail
+  /// outage and an empty wallet arrive as the same all-null body.
   /// See [BillingService.getPaymentMethod].
   static Future<PaymentMethod> getPaymentMethod() => billing.getPaymentMethod();
 

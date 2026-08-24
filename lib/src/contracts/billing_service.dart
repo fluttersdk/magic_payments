@@ -60,5 +60,18 @@ abstract class BillingService {
   /// deserves its own loading and error state rather than sharing the screen's:
   /// the producer soft-fails a rail outage to an all-null [PaymentMethod] with a
   /// 200, so a resolved value does not imply a card.
+  ///
+  /// Which is why a caller must gate its copy on [PaymentMethod.available] and
+  /// not on [PaymentMethod.last4]. An outage and an empty wallet arrive as the
+  /// same all-null body, and only that field separates them:
+  ///
+  /// - `false`: the rail could not be asked, so nothing is known. Say so.
+  /// - `true` with a null `last4`: the rail answered, there is genuinely no
+  ///   card on file.
+  /// - `null`: the producer does not report this at all, which is what a
+  ///   backend from before the field sends. Not the same as `false`.
+  ///
+  /// Reading "no card on file" off a null `last4` alone tells a customer their
+  /// card is gone every time the payment provider has a bad minute.
   Future<PaymentMethod> getPaymentMethod();
 }
