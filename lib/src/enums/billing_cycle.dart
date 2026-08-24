@@ -7,10 +7,14 @@
 /// renewal line names one. When the cycle travels nowhere, those three answers
 /// come from three different places and disagree.
 ///
-/// The wire words are the enum names, so [fromWire] can match on `.name` rather
-/// than on a literal table. That is not true of every vocabulary in this package
-/// (`ManageVia` has snake_case wire words and matches explicitly), so do not
-/// copy the shortcut without checking the words.
+/// Both directions match on LITERALS rather than on `.name`, the same way
+/// `ManageVia` and `BillingProvider` do. The two words happen to be identical to
+/// the member names today, so `.name` would work and read shorter; it would also
+/// be the only place in this package where adding a member silently changes the
+/// wire. A future `semiAnnual` would encode as `semiAnnual` to a producer that
+/// spells it `semi_annual`, `fromWire` would round-trip it happily, and the enum
+/// test would stay green while the request 422s. The literals cost four lines
+/// and cannot do that.
 enum BillingCycle {
   /// Charged every month, at the tier's full rate.
   monthly,
@@ -19,7 +23,12 @@ enum BillingCycle {
   annual;
 
   /// The word to send on the wire.
-  String toWire() => name;
+  String toWire() {
+    return switch (this) {
+      BillingCycle.monthly => 'monthly',
+      BillingCycle.annual => 'annual',
+    };
+  }
 
   /// Decodes a `cycle` wire value, answering `null` for an absent or
   /// unrecognised one.
@@ -33,10 +42,10 @@ enum BillingCycle {
   /// customer because the cycle was a hardcoded literal. `null` means the cycle
   /// is unknown and a caller has to say so, or say nothing.
   static BillingCycle? fromWire(String? raw) {
-    for (final BillingCycle cycle in BillingCycle.values) {
-      if (cycle.name == raw) return cycle;
-    }
-
-    return null;
+    return switch (raw) {
+      'monthly' => BillingCycle.monthly,
+      'annual' => BillingCycle.annual,
+      _ => null,
+    };
   }
 }
