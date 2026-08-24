@@ -171,6 +171,34 @@ void main() {
     });
   });
 
+  group('PlanStatus.isDunning', () {
+    // One test per clause, not one per getter. `isDunning` is two `==` guards
+    // ORed together, and a single test holding both assertions fails identically
+    // whichever clause is deleted, so a mutation run cannot tell which half is
+    // covered: two guards on one outcome absorb each other's mutation. Split,
+    // deleting `== pastDue` reds exactly the first and deleting `== grace` reds
+    // exactly the second.
+    test('names past_due, where the rail is still retrying the card', () {
+      expect(PlanStatus.pastDue.isDunning, isTrue);
+    });
+
+    test('names grace, where the rail has stopped retrying', () {
+      expect(PlanStatus.grace.isDunning, isTrue);
+    });
+
+    test('and no others, including the ones that also grant', () {
+      // The pair that matters. Both dunning statuses GRANT, so a screen reading
+      // entitlement alone cannot tell a paying customer from one whose card
+      // bounced; `trialing` and `active` grant too and must not warn.
+      for (final PlanStatus status in PlanStatus.values) {
+        if (status == PlanStatus.pastDue || status == PlanStatus.grace) {
+          continue;
+        }
+        expect(status.isDunning, isFalse, reason: status.name);
+      }
+    });
+  });
+
   group('BillingCycle', () {
     test('decodes both cycles and round-trips each one', () {
       for (final BillingCycle cycle in BillingCycle.values) {

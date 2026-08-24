@@ -65,4 +65,19 @@ enum PlanStatus {
       _ => PlanStatus.none,
     };
   }
+
+  /// Whether a payment has failed and the rail is still retrying.
+  ///
+  /// This is NOT a `grants()` mirror, which this enum deliberately does not
+  /// carry: whether a status entitles is the producer's answer and arrives as
+  /// `BillingEntitlement.subscribed`. This asks a different question, and one no
+  /// other field answers: is the customer's money late. Both dunning statuses
+  /// still grant, so a screen reading `subscribed` alone cannot tell a paying
+  /// customer from one whose card just bounced, and it showed both of them the
+  /// same healthy renewal sentence.
+  ///
+  /// The two cases differ only in which side is holding the window open, which
+  /// is a distinction for a support conversation and not for a warning banner,
+  /// so they answer alike here.
+  bool get isDunning => this == PlanStatus.pastDue || this == PlanStatus.grace;
 }
