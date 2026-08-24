@@ -25,9 +25,14 @@ dependencies:
   flutter:
     sdk: flutter
   magic: ^0.0.6
-  # ^0.0.13 rather than the ^0.0.8 a sibling still declares. A 0.0.x caret pins
-  # the PATCH, so ^0.0.8 resolves exactly 0.0.8, and this package's CI has no
-  # path override to hide that: it would build against a five-release-old CLI.
+  # ^0.0.13 rather than the ^0.0.8 a sibling still declares, and the difference
+  # is a floor rather than a conflict. Dart's caret is not npm's: `pub_semver`
+  # bumps the MINOR when major is 0, so `^0.0.8` means `>=0.0.8 <0.1.0` and
+  # resolves 0.0.13 alongside this line rather than pinning 0.0.8 against it.
+  # Measured on a scratch package reproducing the published graph, which
+  # resolved on the first try. What this line buys is the guarantee that a
+  # solver cannot hand this package an older CLI, not the resolution of a
+  # clash.
   fluttersdk_artisan: ^0.0.13
   # The STORE rail's SDK, and the only third-party billing dependency here. Its
   # own floors (`sdk >=3.4.0`, `flutter >=3.22.0`) sit BELOW this package's, so

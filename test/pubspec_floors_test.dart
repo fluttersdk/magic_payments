@@ -5,13 +5,23 @@ import 'package:flutter_test/flutter_test.dart';
 /// Guards the three version floors in `pubspec.yaml`, because each one is a
 /// mistake this package was created having already seen.
 ///
-/// A `0.0.z` caret pins the PATCH, so `^0.0.8` resolves exactly `0.0.8` and
-/// nothing else. A sibling plugin still declares `fluttersdk_artisan: ^0.0.8`
-/// against a published `0.0.13`, and it only survives because its consumer
-/// path-overrides the dependency; this package's CI has no override, so a copied
-/// caret would silently build against a five-release-old CLI. Likewise the
-/// `environment` block is inherited from `magic` rather than chosen, and copying
-/// a sibling's older block would claim support this package cannot honour.
+/// A caret is a FLOOR, including at `0.0.z`. Dart's is not npm's: `pub_semver`
+/// bumps the minor when major is 0, so `^0.0.8` means `>=0.0.8 <0.1.0` and a
+/// solver is free to hand back `0.0.13`. What a caret cannot do is reach BELOW
+/// itself, which is the whole reason these floors are asserted: a sibling
+/// plugin still declares `fluttersdk_artisan: ^0.0.8` against a published
+/// `0.0.13`, and copying that stale caret here would let a solver satisfy this
+/// package with a five-release-old CLI whenever something else in the graph
+/// wanted one. Likewise the `environment` block is inherited from `magic`
+/// rather than chosen, and copying a sibling's older block would claim support
+/// this package cannot honour.
+///
+/// An earlier version of this docblock said a `0.0.z` caret pins the patch.
+/// It does not, and the claim is corrected here rather than deleted because it
+/// travelled: it was read as fact and cost a downstream plan a blocker that
+/// did not exist. Measured with a scratch package reproducing the published
+/// graph, where `^0.0.9` resolved artisan `0.0.13` and `^0.0.2` resolved
+/// notifications `0.0.3`.
 ///
 /// A test rather than a comment because a comment cannot fail.
 void main() {
@@ -31,7 +41,7 @@ void main() {
       expect(pubspec, isNot(contains('flutter: ">=3.27.0"')));
     });
 
-    test('artisan is pinned to the published patch, not a stale one', () {
+    test('the artisan floor is the published patch, not a stale one', () {
       expect(pubspec, contains('fluttersdk_artisan: ^0.0.13'));
       expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.8')));
       expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.9')));
