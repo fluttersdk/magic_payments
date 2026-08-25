@@ -49,8 +49,9 @@ adds the next import. Keep the prefix.
 
 ## Command shape
 
-Each command owns one file under `lib/src/cli/commands/` and declares three overrides: `signature`,
-`description`, `boot`.
+Each command owns one file under `lib/src/cli/commands/` and declares `signature` and `description`.
+What else it declares depends on the base: `configure` and `doctor` extend `ArtisanCommand` and add
+`boot`; `install` extends `ArtisanInstallCommand`, adds `pluginName`, and inherits `boot` from there.
 
 **The command name and its flags both live in `signature`**, in the DSL `fluttersdk_artisan` parses.
 There is no `name` getter and no `configure(ArgParser)` hook; do not reach for either, they are the
