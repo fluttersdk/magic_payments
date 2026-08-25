@@ -49,12 +49,30 @@ adds the next import. Keep the prefix.
 
 ## Command shape
 
-Each command owns one file under `lib/src/cli/commands/`, declares its `name` / `description` /
-`boot`, and does its own argument parsing in `configure(ArgParser)`. `configure` and `doctor` are
-`CommandBoot.none`; `install` extends `ArtisanInstallCommand` and inherits the same. Nothing here
-runs `connected`, because no `payments:*` command talks to a running app, and a command that wanted to
-would be reading state the backend already owns.
+Each command owns one file under `lib/src/cli/commands/` and declares three overrides: `signature`,
+`description`, `boot`.
 
-`analysis_options.yaml` sets `avoid_print: ignore` package-wide with a comment saying it is for this
-directory. That is the only reason the rule is off; a `print` outside `lib/src/cli/` is a defect the
-analyzer will no longer catch for you.
+**The command name and its flags both live in `signature`**, in the DSL `fluttersdk_artisan` parses.
+There is no `name` getter and no `configure(ArgParser)` hook; do not reach for either, they are the
+shape a sibling package uses:
+
+```dart
+@override
+String get signature =>
+    'payments:configure '
+    '{--show : Print the current payments configuration} '
+    '{--driver= : Set the driver PaymentsManager resolves}';
+```
+
+A flag is read back through the context rather than a parser object: `ctx.input.option('driver') as
+String?`, and `ctx.input.option('show') as bool? ?? false` for a boolean. The cast sits at the call
+site because `option` is untyped.
+
+`configure` and `doctor` declare `CommandBoot.none`; `install` extends `ArtisanInstallCommand`, which
+declares the same (`artisan/lib/src/installer/artisan_install_command.dart:79`). Nothing here runs
+`connected`, because no `payments:*` command talks to a running app, and one that wanted to would be
+reading state the backend already owns.
+
+`analysis_options.yaml` sets `avoid_print: ignore` package-wide, under the comment `# CLI tools
+legitimately use print`. The scope is the whole package even though the reason is this directory, so a
+stray `print` outside `lib/src/cli/` is a defect the analyzer will no longer catch for you.
