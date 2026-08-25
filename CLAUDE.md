@@ -3,8 +3,11 @@
 Multi-rail billing for the Magic Framework: one entitlement contract over Stripe on the web and store
 in-app purchase on iOS and Android. A `magic` plugin, with its CLI on `fluttersdk_artisan`.
 
-`0.0.1` is a scaffold. The barrels are empty on purpose, so the repository, its CI and its publish
-workflow are proven against an empty tree before any code depends on them.
+`0.0.1` is unreleased and still the only version. It started as a scaffold with empty barrels, so the
+repository, its CI and its publish workflow were proven against an empty tree first; the barrels now
+carry the three service contracts, the drivers behind them, the entitlement model and its vocabulary
+enums. Nothing is on pub.dev yet, so a downstream package naming `magic_payments` resolves only
+through a local override until that first publish happens.
 
 ## The one idea worth holding
 
@@ -50,8 +53,15 @@ of a moved file as expected.
 ## Rules
 
 `.claude/rules/` holds path-scoped guidance, and a rule arrives with the subsystem it governs rather
-than ahead of it. At `0.0.1` that means `tests.md` only; the drivers, the manager and the CLI get
-theirs when they get their code.
+than ahead of it. Every subsystem now has code, so every subsystem now has a rule:
+
+- `tests.md`: the four traps a fixture-driven suite falls into.
+- `contracts.md`: the three-contract split, and the vocabulary rules the wire types follow.
+- `drivers.md`: the conditional-import graph, and why nothing here branches on the runtime platform.
+- `cli.md`: the three `payments:*` commands, the manifest-only install, and the one-tool MCP policy.
+
+None of them restate a docblock. The source carries the reasoning for a given class; a rule carries
+the invariant that spans the directory, which is the thing a reader cannot get by opening one file.
 
 ## References
 
