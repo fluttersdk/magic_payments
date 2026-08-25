@@ -90,6 +90,19 @@ the shape rather than a diff.
   default is a claim about what somebody is being charged. Null means unknown
   and a caller has to render it as unknown.
 
+- **`PlanStatus.isDunning`, the question no field on the wire answered.** Both
+  `pastDue` and `grace` still GRANT, so a screen reading `subscribed` alone
+  cannot tell a paying customer from one whose card has just bounced, and it
+  showed them the same healthy renewal sentence. Measured on a live Stripe test
+  clock: a failed renewal put the subscription in `past_due` and the billing
+  page still read "renews Nov 24, 2026" with no warning anywhere.
+
+  Deliberately NOT a `grants()` mirror, which this enum does not carry: whether
+  a status entitles is the producer's answer and arrives as
+  `BillingEntitlement.subscribed`. This asks a different question, is the
+  customer's money late, and a client that re-derived entitlement from the
+  status word would be answering the first one twice.
+
 - **Seven documentation pages** under `doc/`, covering installation,
   configuration, the rails, the drivers, the manager, the service provider and
   the CLI.
