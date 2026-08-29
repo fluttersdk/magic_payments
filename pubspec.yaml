@@ -1,6 +1,6 @@
 name: magic_payments
 description: Multi-rail billing for the Magic Framework. One entitlement contract over Stripe on the web and store in-app purchase on mobile.
-version: 0.0.1
+version: 0.0.2
 homepage: https://magic.fluttersdk.com/payments
 documentation: https://magic.fluttersdk.com/packages/payments/getting-started/installation
 repository: https://github.com/fluttersdk/magic_payments
