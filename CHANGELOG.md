@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.0.2
+
+Documentation only; the package code is identical to 0.0.1.
+
+### Changed
+
+- **The README described a package that no longer existed.** It opened with a
+  warning that `0.0.1` was a scaffold whose "public API is not implemented yet"
+  and whose "exports are empty", which was true of the first commit and of
+  nothing since: the barrels carry the three contracts, the drivers behind them,
+  the entitlement model and the five enums, and 206 tests run against them. That
+  warning was the first thing anyone read on pub.dev, so the package described
+  itself as unusable while being usable. It now carries the ordinary pre-`0.1.0`
+  caution instead.
+- **The one code sample in the README called a method that does not exist.**
+  `Payments.entitlement()` is `Payments.currentEntitlement()`. A reader copying
+  the snippet did not compile.
+- The README gained the three-role table (which rail exists where, and why a
+  rail is checked rather than assumed) and the actual install commands, rather
+  than a sentence pointing at "your app's config".
+
 ## 0.0.1
 
 First release of the package. Everything below is new, so this entry describes
