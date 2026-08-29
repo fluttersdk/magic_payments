@@ -3,11 +3,11 @@
 Multi-rail billing for the Magic Framework: one entitlement contract over Stripe on the web and store
 in-app purchase on iOS and Android. A `magic` plugin, with its CLI on `fluttersdk_artisan`.
 
-`0.0.1` is unreleased and still the only version. It started as a scaffold with empty barrels, so the
-repository, its CI and its publish workflow were proven against an empty tree first; the barrels now
-carry the three service contracts, the drivers behind them, the entitlement model and its vocabulary
-enums. Nothing is on pub.dev yet, so a downstream package naming `magic_payments` resolves only
-through a local override until that first publish happens.
+`0.0.1` went to pub.dev on 2026-08-25, so `magic_starter` names this package as an ordinary hosted
+dependency and no local override is needed to publish downstream. It started as a scaffold with empty
+barrels, so the repository, its CI and its publish workflow were proven against an empty tree first;
+the barrels now carry the three service contracts, the drivers behind them, the entitlement model and
+its vocabulary enums.
 
 ## The one idea worth holding
 
