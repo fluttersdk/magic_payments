@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.3
+
+Dependency floors only; the package code is identical to 0.0.2.
+
+### Changed
+
+- **Every sibling floor names this batch's release.** `magic` moves `^0.0.6` to `^0.0.15` and `fluttersdk_artisan` `^0.0.13` to `^0.0.16`. The old ranges already admitted the new versions, so a fresh `pub get` resolves nothing differently; what changes is that the floors name the releases this package is verified against. magic 0.0.15 is breaking in its database layer (a migration may no longer manage its own transaction, and `DB.transaction` refuses a callback that closes the transaction itself); nothing in this package calls either, so no code here changes, but an app below magic 0.0.15 no longer resolves this release. (`pubspec.yaml`, `test/pubspec_floors_test.dart`)
+
 ## 0.0.2
 
 Documentation only; the package code is identical to 0.0.1.
