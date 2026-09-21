@@ -42,13 +42,16 @@ void main() {
     });
 
     test('the artisan floor is the published patch, not a stale one', () {
-      expect(pubspec, contains('fluttersdk_artisan: ^0.0.13'));
+      expect(pubspec, contains('fluttersdk_artisan: ^0.0.16'));
       expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.8')));
-      expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.9')));
+      expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.13')));
     });
 
-    test('magic is pinned to the floor its own API requires', () {
-      expect(pubspec, contains('magic: ^0.0.6'));
+    // 0.0.6 is what this package's own API needs from magic; 0.0.15 is the
+    // release the 2026-09-21 batch verified it against, and the floor names
+    // that one.
+    test('magic is pinned to the release this package is verified against', () {
+      expect(pubspec, contains('magic: ^0.0.15'));
     });
   });
 }
