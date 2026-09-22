@@ -1,6 +1,6 @@
 name: magic_payments
 description: Multi-rail billing for the Magic Framework. One entitlement contract over Stripe on the web and store in-app purchase on mobile.
-version: 0.0.3
+version: 0.0.4
 homepage: https://magic.fluttersdk.com/payments
 documentation: https://magic.fluttersdk.com/packages/payments/getting-started/installation
 repository: https://github.com/fluttersdk/magic_payments
@@ -24,7 +24,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  magic: ^0.0.15
+  magic: ^0.0.16
   # ^0.0.13 rather than the ^0.0.8 a sibling still declares, and the difference
   # is a floor rather than a conflict. Dart's caret is not npm's: `pub_semver`
   # bumps the MINOR when major is 0, so `^0.0.8` means `>=0.0.8 <0.1.0` and

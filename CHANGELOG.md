@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.0.4
+
+Dependency floors only; the package code is identical to 0.0.3.
+
+### Changed
+
+- **Every sibling floor names this batch's release.** `magic` moves `^0.0.15` to `^0.0.16`; `fluttersdk_artisan` stays at `^0.0.16`, still the newest. The old ranges already admitted the new versions, so a fresh `pub get` resolves nothing differently; what changes is that the floors name the releases this package is verified against. magic 0.0.16 widens `file_picker` to admit 13, where `PlatformFile.length()` answers null for an unreadable file; this package does not call `Pick`. `test/pubspec_floors_test.dart` pins the new magic floor. (`pubspec.yaml`, `test/pubspec_floors_test.dart`, `README.md`, `doc/getting-started/installation.md`)
+
 ## 0.0.3
 
 Dependency floors only; the package code is identical to 0.0.2.
