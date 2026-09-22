@@ -47,11 +47,11 @@ void main() {
       expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.13')));
     });
 
-    // 0.0.6 is what this package's own API needs from magic; 0.0.15 is the
-    // release the 2026-09-21 batch verified it against, and the floor names
+    // 0.0.6 is what this package's own API needs from magic; 0.0.16 is the
+    // release the 2026-09-22 batch verified it against, and the floor names
     // that one.
     test('magic is pinned to the release this package is verified against', () {
-      expect(pubspec, contains('magic: ^0.0.15'));
+      expect(pubspec, contains('magic: ^0.0.16'));
     });
   });
 }
