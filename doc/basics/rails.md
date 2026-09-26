@@ -156,6 +156,36 @@ exists to prevent on the store rail specifically. It is safe on every OTHER call
 because every other write either confirms synchronously (the web rail's `checkout`, `swap`,
 `cancel`) or is itself a read; only a store purchase carries this asynchronous gap.
 
+### <a name="store-identity"></a>Keeping the Store Identified
+
+The id passed to `identify()` is what the rail's webhook attributes a purchase to, so the rail has
+to be re-identified whenever the paying subject changes: on login, on a session restore, and on
+every switch of the subject (a team switch, where teams pay). `StoreIdentitySync` owns the WHEN; you
+supply the WHO:
+
+```dart
+// Who pays is your answer: a team here, a user elsewhere.
+StoreIdentitySync.billableId = () => User.current.currentTeam?.id?.toString();
+StoreIdentitySync.attach();
+
+// A switch of the paying subject identifies explicitly once it succeeded,
+// because the auth change it causes may still carry the previous subject.
+if (await switchTeam(teamId)) {
+  await StoreIdentitySync.syncNow();
+}
+```
+
+- `attach()` listens to `Auth.stateNotifier` and syncs on every change; calling it twice listens once.
+  `detach()` stops listening and forgets what was identified.
+- A build without a store rail, and a session without a subject (`null` or an empty id), identify
+  nothing. A signed-out session unbinds nothing either: the contract has no logout, and the next
+  sign-in overwrites the binding.
+- The same id twice in a row identifies once, including two overlapping syncs. The guard resets when
+  the id goes absent, so signing out and back in as the same subject identifies again.
+- A `BillingException` from the rail is logged at error level and not thrown, since the login or
+  switch that prompted the sync already succeeded; the next sync retries that id.
+- `billableId` has no default. While it is unset nothing is identified, and one debug line says so.
+
 ---
 
 ## <a name="authority"></a>Entitlement Authority Belongs to the Backend

@@ -55,5 +55,8 @@ export 'src/drivers/billing_service_factory.dart';
 export 'src/payments_manager.dart';
 export 'src/providers/payments_service_provider.dart';
 
+// Support
+export 'src/support/store_identity_sync.dart';
+
 // Exceptions
 export 'src/exceptions/billing_exception.dart';
