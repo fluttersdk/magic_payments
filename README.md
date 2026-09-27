@@ -5,7 +5,7 @@ contract over Stripe on the web and store in-app purchase on iOS and Android.
 
 > [!NOTE]
 > The public API is still settling ahead of `0.1.0`. Pin an exact version
-> (`magic_payments: 0.0.4`) if you depend on it before then.
+> (`magic_payments: 0.0.5`) if you depend on it before then.
 
 ## Why it exists
 
@@ -50,7 +50,7 @@ renders at all, rather than rendering one that fails when tapped.
 
 ```yaml
 dependencies:
-  magic_payments: ^0.0.4
+  magic_payments: ^0.0.5
 ```
 
 ```bash
