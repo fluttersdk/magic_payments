@@ -49,11 +49,14 @@ class StoreIdentitySync {
   /// loses its subject.
   static String? _identified;
 
-  /// The sync that runs last, which the next [syncNow] waits for.
+  /// The last queued sync while one is in flight, null while idle.
   ///
   /// Two identifies in flight at once leave the rail on whichever the vendor
   /// SDK finishes last, not on the newer subject, so syncs run one at a time.
-  static Future<void> _queue = Future<void>.value();
+  /// Null rather than a completed future when idle: a completed future runs
+  /// its listeners in the zone it was created in, so chaining onto one would
+  /// move an idle sync into another zone's microtask queue.
+  static Future<void>? _tail;
 
   /// Whether the unset [billableId] has been reported, so the debug line lands
   /// once rather than on every auth bump.
@@ -74,6 +77,7 @@ class StoreIdentitySync {
   /// Stops listening and forgets what was identified, so a later [attach]
   /// starts from a rail it knows nothing about.
   static void detach() {
+    _tail = null;
     _notifier?.removeListener(_onAuthChanged);
     _notifier = null;
     _identified = null;
@@ -95,10 +99,22 @@ class StoreIdentitySync {
   /// rethrown, because whatever prompted the sync (a login, a switch) already
   /// succeeded; the failed id is forgotten so the next sync retries it.
   static Future<void> syncNow() {
-    final Future<void> run = _queue.then((_) => _sync());
+    // Idle: run now, in the caller's zone and turn. Busy: queue behind the
+    // sync in flight, which reads the rail and the subject when its turn comes.
+    final Future<void>? previous = _tail;
+    final Future<void> run = previous == null
+        ? _sync()
+        : previous.then((_) => _sync());
+
     // The queue only orders the syncs; the caller still gets [run]'s error,
     // and without this a single rethrow would fail every sync queued after it.
-    _queue = run.then((_) {}, onError: (Object _) {});
+    final Future<void> tail = run.then((_) {}, onError: (Object _) {});
+    _tail = tail;
+    unawaited(
+      tail.then((_) {
+        if (identical(_tail, tail)) _tail = null;
+      }),
+    );
 
     return run;
   }

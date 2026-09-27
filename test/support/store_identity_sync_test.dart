@@ -205,6 +205,43 @@ void main() {
     );
   });
 
+  group('an idle sync runs in the caller\'s zone', () {
+    test('it starts identifying in the caller\'s own turn', () {
+      // The queue used to chain every sync onto a stored future, and a
+      // completed future runs its listener in the zone it was CREATED in. A
+      // sync started inside a widget test's fake-async zone then waited on
+      // another zone's microtask queue, which nothing there flushes: the team
+      // switch awaiting it never returned.
+      final _RecordingStoreRail store = useStoreRail();
+
+      unawaited(StoreIdentitySync.syncNow());
+
+      expect(store.identifiedIds, ['team-alpha']);
+    });
+
+    test(
+      'a zone whose microtasks never run does not stall a later sync',
+      () async {
+        final _RecordingStoreRail store = useStoreRail();
+
+        // A sync that finished in a zone that dropped its microtasks, the shape
+        // a torn-down fake-async test leaves behind.
+        runZoned(
+          () => unawaited(StoreIdentitySync.syncNow()),
+          zoneSpecification: ZoneSpecification(
+            scheduleMicrotask: (_, _, _, _) {},
+          ),
+        );
+        StoreIdentitySync.detach();
+
+        billable = 'team-beta';
+        await StoreIdentitySync.syncNow().timeout(const Duration(seconds: 1));
+
+        expect(store.identifiedIds, contains('team-beta'));
+      },
+    );
+  });
+
   group('identify runs once per subject', () {
     test('the same id twice in a row identifies exactly once', () async {
       final _RecordingStoreRail store = useStoreRail();
