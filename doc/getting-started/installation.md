@@ -33,7 +33,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  magic_payments: ^0.0.5
+  magic_payments: ^0.0.6
 ```
 
 Then fetch dependencies:
@@ -44,7 +44,7 @@ flutter pub get
 
 > [!NOTE]
 > The public API is still settling ahead of a `0.1.0` release. Pin an exact version
-> (`magic_payments: 0.0.5`) if you depend on it before then, the same caution the package's own
+> (`magic_payments: 0.0.6`) if you depend on it before then, the same caution the package's own
 > README carries.
 
 ---
