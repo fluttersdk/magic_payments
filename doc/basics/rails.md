@@ -180,6 +180,9 @@ if (await switchTeam(teamId)) {
 - A build without a store rail, and a session without a subject (`null` or an empty id), identify
   nothing. A signed-out session unbinds nothing either: the contract has no logout, and the next
   sign-in overwrites the binding.
+- Syncs run one at a time in call order, and each reads the subject when its turn comes. A switch
+  that lands while an identify is in flight identifies the newer subject after it, never alongside
+  it, so the rail ends on the newer subject whatever order the vendor SDK finishes its calls in.
 - The same id twice in a row identifies once, including two overlapping syncs. The guard resets when
   the id goes absent, so signing out and back in as the same subject identifies again.
 - A `BillingException` from the rail is logged at error level and not thrown, since the login or

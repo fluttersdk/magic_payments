@@ -4,7 +4,7 @@
 
 ### Added
 
-- **`StoreIdentitySync` keeps the store rail identified as the paying subject.** Set `StoreIdentitySync.billableId` to a resolver answering the subject's id (a team or a user; the consumer decides), call `attach()` once, and every `Auth.stateNotifier` change identifies `Payments.store` with it; `syncNow()` identifies on demand (after a switch of the paying subject) and `detach()` stops. It skips a build without a store rail and a session without a subject, identifies a repeated id once, identifies again after a sign-out, and logs a `BillingException` from the rail at error level instead of throwing, retrying that id on the next sync. An unset resolver identifies nothing and logs once at debug level. (`lib/src/support/store_identity_sync.dart`, `doc/basics/rails.md`)
+- **`StoreIdentitySync` keeps the store rail identified as the paying subject.** Set `StoreIdentitySync.billableId` to a resolver answering the subject's id (a team or a user; the consumer decides), call `attach()` once, and every `Auth.stateNotifier` change identifies `Payments.store` with it; `syncNow()` identifies on demand (after a switch of the paying subject) and `detach()` stops. It skips a build without a store rail and a session without a subject, runs syncs one at a time in call order, each reading the subject when its turn comes (so a switch during an identify leaves the rail on the newer subject whatever order the vendor SDK finishes in), identifies a repeated id once, identifies again after a sign-out, and logs a `BillingException` from the rail at error level instead of throwing, retrying that id on the next sync. An unset resolver identifies nothing and logs once at debug level. (`lib/src/support/store_identity_sync.dart`, `doc/basics/rails.md`)
 
 ## 0.0.4
 

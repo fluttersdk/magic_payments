@@ -44,10 +44,16 @@ class StoreIdentitySync {
   /// from the same guard even after the container rebinds `auth`.
   static ValueNotifier<int>? _notifier;
 
-  /// The id last handed to the rail, set before the call so two overlapping
-  /// syncs for one id identify once, and cleared when the call fails or the
-  /// session loses its subject.
+  /// The id last handed to the rail, set before the call so a [detach] during
+  /// it leaves nothing behind, and cleared when the call fails or the session
+  /// loses its subject.
   static String? _identified;
+
+  /// The sync that runs last, which the next [syncNow] waits for.
+  ///
+  /// Two identifies in flight at once leave the rail on whichever the vendor
+  /// SDK finishes last, not on the newer subject, so syncs run one at a time.
+  static Future<void> _queue = Future<void>.value();
 
   /// Whether the unset [billableId] has been reported, so the debug line lands
   /// once rather than on every auth bump.
@@ -81,10 +87,23 @@ class StoreIdentitySync {
   /// goes absent (a sign-out), so the next sign-in as the same subject
   /// identifies again: the device may have been bound elsewhere in between.
   ///
+  /// Syncs run one at a time in call order, and each reads the rail and the
+  /// subject when its turn comes: a switch that lands while an identify is in
+  /// flight identifies the newer subject after it, never alongside it.
+  ///
   /// A [BillingException] from the rail is logged at error level and not
   /// rethrown, because whatever prompted the sync (a login, a switch) already
   /// succeeded; the failed id is forgotten so the next sync retries it.
-  static Future<void> syncNow() async {
+  static Future<void> syncNow() {
+    final Future<void> run = _queue.then((_) => _sync());
+    // The queue only orders the syncs; the caller still gets [run]'s error,
+    // and without this a single rethrow would fail every sync queued after it.
+    _queue = run.then((_) {}, onError: (Object _) {});
+
+    return run;
+  }
+
+  static Future<void> _sync() async {
     // 1. A build without a store rail has nothing to bind; that is an answer.
     final StoreBillingService? store = Payments.store;
     if (store == null) return;
@@ -107,12 +126,11 @@ class StoreIdentitySync {
 
     if (id == _identified) return;
 
-    // 4. Claim the id before awaiting, so an overlapping sync sees a repeat.
     _identified = id;
     try {
       await store.identify(id);
     } catch (error) {
-      if (_identified == id) _identified = null;
+      _identified = null;
       if (error is! BillingException) rethrow;
 
       // Not rethrown: the caller's own action succeeded. Error level because
