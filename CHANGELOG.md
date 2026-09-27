@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- **An idle `StoreIdentitySync.syncNow()` runs in the caller's zone instead of waiting on another zone's microtask queue.** 0.0.5 chained every sync onto a stored completed future, and a completed future runs its listeners in the zone it was created in: a sync started inside a widget test's fake-async zone (a team switch in `magic_starter`, which awaits the sync) never ran and the switch never returned, once an earlier test had created that future. An idle sync now starts in the caller's own turn; only a sync queued behind one in flight chains, and a `detach()` during an identify still keeps the next sync behind it. (`lib/src/support/store_identity_sync.dart`)
+
 ## 0.0.5
 
 ### Added

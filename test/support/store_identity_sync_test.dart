@@ -205,6 +205,46 @@ void main() {
     );
   });
 
+  group('an idle sync runs in the caller\'s zone', () {
+    test('it starts identifying in the caller\'s own turn', () {
+      // The queue used to chain every sync onto a stored future, and a
+      // completed future runs its listener in the zone it was CREATED in. A
+      // sync started inside a widget test's fake-async zone then waited on
+      // another zone's microtask queue, which nothing there flushes: the team
+      // switch awaiting it never returned.
+      final _RecordingStoreRail store = useStoreRail();
+
+      unawaited(StoreIdentitySync.syncNow());
+
+      expect(store.identifiedIds, ['team-alpha']);
+    });
+
+    test('a detach during an identify keeps the next sync behind it', () async {
+      // A sign-out during a slow vendor call, then a sign-in: the two
+      // identifies must not run side by side, or the rail keeps whichever
+      // the SDK finishes last rather than the newer subject.
+      final _GatedStoreRail store = _GatedStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => store);
+
+      final Future<void> first = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
+      StoreIdentitySync.detach();
+      billable = 'team-beta';
+      final Future<void> second = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
+
+      expect(store.startedIds, ['team-alpha']);
+
+      store.release('team-beta');
+      await pumpEventQueue();
+      store.release('team-alpha');
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(store.startedIds, ['team-alpha', 'team-beta']);
+      expect(store.bound, 'team-beta');
+    });
+  });
+
   group('identify runs once per subject', () {
     test('the same id twice in a row identifies exactly once', () async {
       final _RecordingStoreRail store = useStoreRail();
