@@ -77,7 +77,8 @@ class StoreIdentitySync {
   /// Stops listening and forgets what was identified, so a later [attach]
   /// starts from a rail it knows nothing about.
   static void detach() {
-    _tail = null;
+    // The queue stays: a sync still in flight (a sign-out during a slow vendor
+    // call) must finish before the next one starts, attached or not.
     _notifier?.removeListener(_onAuthChanged);
     _notifier = null;
     _identified = null;

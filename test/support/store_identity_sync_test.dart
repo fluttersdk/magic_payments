@@ -219,27 +219,30 @@ void main() {
       expect(store.identifiedIds, ['team-alpha']);
     });
 
-    test(
-      'a zone whose microtasks never run does not stall a later sync',
-      () async {
-        final _RecordingStoreRail store = useStoreRail();
+    test('a detach during an identify keeps the next sync behind it', () async {
+      // A sign-out during a slow vendor call, then a sign-in: the two
+      // identifies must not run side by side, or the rail keeps whichever
+      // the SDK finishes last rather than the newer subject.
+      final _GatedStoreRail store = _GatedStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => store);
 
-        // A sync that finished in a zone that dropped its microtasks, the shape
-        // a torn-down fake-async test leaves behind.
-        runZoned(
-          () => unawaited(StoreIdentitySync.syncNow()),
-          zoneSpecification: ZoneSpecification(
-            scheduleMicrotask: (_, _, _, _) {},
-          ),
-        );
-        StoreIdentitySync.detach();
+      final Future<void> first = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
+      StoreIdentitySync.detach();
+      billable = 'team-beta';
+      final Future<void> second = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
 
-        billable = 'team-beta';
-        await StoreIdentitySync.syncNow().timeout(const Duration(seconds: 1));
+      expect(store.startedIds, ['team-alpha']);
 
-        expect(store.identifiedIds, contains('team-beta'));
-      },
-    );
+      store.release('team-beta');
+      await pumpEventQueue();
+      store.release('team-alpha');
+      await Future.wait(<Future<void>>[first, second]);
+
+      expect(store.startedIds, ['team-alpha', 'team-beta']);
+      expect(store.bound, 'team-beta');
+    });
   });
 
   group('identify runs once per subject', () {
