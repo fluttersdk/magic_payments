@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+## 0.0.5
+
 ### Added
 
 - **`StoreIdentitySync` keeps the store rail identified as the paying subject.** Set `StoreIdentitySync.billableId` to a resolver answering the subject's id (a team or a user; the consumer decides), call `attach()` once, and every `Auth.stateNotifier` change identifies `Payments.store` with it; `syncNow()` identifies on demand (after a switch of the paying subject) and `detach()` stops. It skips a build without a store rail and a session without a subject, runs syncs one at a time in call order, each reading the subject when its turn comes (so a switch during an identify leaves the rail on the newer subject whatever order the vendor SDK finishes in), identifies a repeated id once, identifies again after a sign-out, and logs a `BillingException` from the rail at error level instead of throwing, retrying that id on the next sync. An unset resolver identifies nothing and logs once at debug level. (`lib/src/support/store_identity_sync.dart`, `doc/basics/rails.md`)
+
+### Changed
+
+- **Every sibling floor names this batch's release.** `magic` moves `^0.0.16` to `^0.0.22`; `fluttersdk_artisan` stays at `^0.0.16`, still the newest. The old ranges already admitted the new versions, so a fresh `pub get` resolves nothing differently; what changes is that the floors name the release this package is verified against. `StoreIdentitySync` needs nothing newer than 0.0.16; of magic 0.0.22's BREAKING changes, only `Auth.fake()` dispatching through the real `Event` facade reaches it, from one test, and the suite passes unchanged. (`pubspec.yaml`, `test/pubspec_floors_test.dart`)
 
 ## 0.0.4
 
