@@ -71,10 +71,13 @@ class _GatedStoreRail implements StoreBillingService {
 /// A store rail whose identify fails with something other than a
 /// [BillingException]: a defect in the rail, not a refusal.
 class _BrokenStoreRail extends _RecordingStoreRail {
+  /// Fails every identify while set.
+  bool broken = true;
+
   @override
   Future<void> identify(String appUserId) async {
     identifiedIds.add(appUserId);
-    throw StateError('rail defect');
+    if (broken) throw StateError('rail defect');
   }
 }
 
@@ -358,17 +361,22 @@ void main() {
       },
     );
 
-    test('a failed sync does not stop the syncs queued after it', () async {
-      final _RecordingStoreRail store = useStoreRail()
-        ..refusal = const BillingException('rail down');
+    test(
+      'a sync that throws does not stop the syncs queued after it',
+      () async {
+        // Only a rethrown error reaches the queue: a BillingException is logged
+        // inside the sync and completes it normally.
+        final _BrokenStoreRail store = _BrokenStoreRail();
+        Payments.extend(PaymentsManager.storeRole, () => store);
 
-      final Future<void> first = StoreIdentitySync.syncNow();
-      store.refusal = null;
-      billable = 'team-beta';
-      await Future.wait(<Future<void>>[first, StoreIdentitySync.syncNow()]);
+        await expectLater(StoreIdentitySync.syncNow(), throwsStateError);
+        store.broken = false;
+        billable = 'team-beta';
+        await StoreIdentitySync.syncNow();
 
-      expect(store.identifiedIds.last, 'team-beta');
-    });
+        expect(store.identifiedIds, ['team-alpha', 'team-beta']);
+      },
+    );
 
     test('a failed identify is retried for the same id', () async {
       // The rail still holds the previous binding, so skipping the retry as a
