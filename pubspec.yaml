@@ -38,7 +38,7 @@ dependencies:
   # own floors (`sdk >=3.4.0`, `flutter >=3.22.0`) sit BELOW this package's, so
   # adding it cannot drag the environment block down; the block above stays
   # magic's.
-  purchases_flutter: ^10.9.1
+  purchases_flutter: ^10.15.1
 
 dev_dependencies:
   flutter_test:
