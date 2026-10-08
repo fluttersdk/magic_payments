@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:fluttersdk_artisan/artisan.dart';
@@ -25,17 +26,31 @@ void main() {
   String at(String relative) => '${temp.path}/$relative';
 
   /// Runs the command and returns `(exitCode, capturedOutput)`.
-  Future<(int, String)> run({bool verbose = false}) async {
+  Future<(int, String)> run({bool verbose = false, bool json = false}) async {
     final output = BufferedOutput();
     final code = await command.handle(
       ArtisanContext.bare(
         MapInput(<String, dynamic>{
           'verbose': verbose,
+          'json': json,
         }, signature: command.parsedSignature),
         output,
       ),
     );
     return (code, output.content);
+  }
+
+  /// Runs `--json` and decodes the WHOLE output: any banner or prose around the
+  /// object makes `jsonDecode` throw, which is the contract an agent relies on.
+  Future<(int, Map<String, dynamic>)> runJson() async {
+    final (code, output) = await run(json: true);
+    return (code, jsonDecode(output) as Map<String, dynamic>);
+  }
+
+  Map<String, dynamic> checkNamed(Map<String, dynamic> report, String id) {
+    return (report['checks'] as List<dynamic>)
+        .cast<Map<String, dynamic>>()
+        .singleWhere((Map<String, dynamic> check) => check['id'] == id);
   }
 
   /// Writes the fixture into the state a completed `payments:install` leaves.
@@ -357,6 +372,139 @@ Map<String, dynamic> get paymentsConfig => {
       final (code, output) = await run();
       expect(code, 0);
       expect(output, contains('store rail key: absent'));
+    });
+  });
+
+  group('payments:doctor --json', () {
+    test('the signature declares the flag', () {
+      expect(command.signature, contains('--json'));
+    });
+
+    test('prints one object whose ids are the human checks', () async {
+      writeInstalledState();
+
+      final (code, report) = await runJson();
+
+      expect(code, 0);
+      expect(report['ok'], isTrue);
+      expect(
+        (report['checks'] as List<dynamic>).map((c) => (c as Map)['id']),
+        <String>[
+          'dependency_declared',
+          'dependency_resolved',
+          'config_published',
+          'config_valid',
+          'provider_registered',
+          'config_factory_wired',
+          'store_rail_key',
+        ],
+      );
+      for (final Object? check in report['checks'] as List<dynamic>) {
+        expect(
+          (check as Map<String, dynamic>)['status'],
+          anyOf('ok', 'warn', 'error'),
+        );
+        expect(check['message'], isA<String>());
+      }
+    });
+
+    test('a blank store key is a warning, never a failure', () async {
+      writeInstalledState();
+
+      final (code, report) = await runJson();
+
+      expect(code, 0);
+      expect(report['ok'], isTrue);
+      final Map<String, dynamic> key = checkNamed(report, 'store_rail_key');
+      expect(key['status'], 'warn');
+      expect(key['message'], contains('blank'));
+      expect(key['fix'], isA<String>());
+    });
+
+    test('a configured store key reads present and never leaks', () async {
+      writeInstalledState();
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+    'revenuecat': {
+      'public_sdk_key': 'appl_SENTINELVALUE',
+    },
+  },
+};
+''');
+
+      final (_, output) = await run(json: true);
+      final report = jsonDecode(output) as Map<String, dynamic>;
+
+      final Map<String, dynamic> key = checkNamed(report, 'store_rail_key');
+      expect(key['status'], 'ok');
+      expect(key['message'], contains('present'));
+      expect(key.containsKey('fix'), isFalse);
+      expect(output, isNot(contains('SENTINELVALUE')));
+    });
+
+    test('a missing revenuecat block reads absent', () async {
+      writeInstalledState();
+      File(at('lib/config/payments.dart')).writeAsStringSync('''
+Map<String, dynamic> get paymentsConfig => {
+  'payments': {
+    'driver': 'platform',
+  },
+};
+''');
+
+      final (_, report) = await runJson();
+
+      final Map<String, dynamic> key = checkNamed(report, 'store_rail_key');
+      expect(key['status'], 'warn');
+      expect(key['message'], contains('absent'));
+    });
+
+    test(
+      'a broken project is not ok, exits 1 and says how to fix it',
+      () async {
+        writeInstalledState();
+        File(at('lib/main.dart')).writeAsStringSync('''
+void main() async {
+  await Magic.init(configFactories: []);
+}
+''');
+
+        final (code, report) = await runJson();
+
+        expect(code, 1);
+        expect(report['ok'], isFalse);
+        final Map<String, dynamic> wired = checkNamed(
+          report,
+          'config_factory_wired',
+        );
+        expect(wired['status'], 'error');
+        expect(wired['fix'], isA<String>());
+        expect(checkNamed(report, 'provider_registered')['status'], 'ok');
+      },
+    );
+
+    test('an uninstalled project reports every failed check', () async {
+      final (code, report) = await runJson();
+
+      expect(code, 1);
+      expect(report['ok'], isFalse);
+      expect(checkNamed(report, 'config_published')['status'], 'error');
+      expect(checkNamed(report, 'config_valid')['status'], 'error');
+      expect(
+        checkNamed(report, 'store_rail_key')['message'],
+        contains('absent'),
+      );
+    });
+
+    test('the human report is unchanged without the flag', () async {
+      writeInstalledState();
+
+      final (_, output) = await run();
+
+      expect(output, contains('Dependency declared: ✓'));
+      expect(() => jsonDecode(output), throwsFormatException);
     });
   });
 

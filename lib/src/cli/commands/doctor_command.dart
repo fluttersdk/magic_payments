@@ -38,17 +38,22 @@ import 'configure_command.dart' show servedDriverModes;
 ///
 /// Exits 0 when every check passes, 1 otherwise.
 ///
+/// `--json` prints the same checks as one object, see [jsonReport], with the
+/// same exit code.
+///
 /// ## Usage
 ///
 /// ```bash
 /// dart run <app>:artisan payments:doctor
 /// dart run <app>:artisan payments:doctor --verbose
+/// dart run <app>:artisan payments:doctor --json
 /// ```
 class DoctorCommand extends ArtisanCommand {
   @override
   String get signature =>
-      'payments:doctor {--verbose : Show the path and the requirement behind '
-      'each check}';
+      'payments:doctor '
+      '{--verbose : Show the path and the requirement behind each check} '
+      '{--json : Print one JSON object for an agent instead of the report}';
 
   @override
   String get description =>
@@ -513,8 +518,132 @@ class DoctorCommand extends ArtisanCommand {
     return out.toString();
   }
 
+  /// The machine-readable report: `{ok, checks: [{id, status, message, fix?}]}`.
+  ///
+  /// Every id is one of the human report's checks, in the order it runs them, so
+  /// an agent and an operator read the same facts. `status` is `ok`, `warn` or
+  /// `error`; `ok` is true exactly when no check is an `error`, which is the same
+  /// condition [issues] uses for the exit code. `fix` is present only on a check
+  /// that is not `ok`, and names the command or the file to change.
+  ///
+  /// A configured key is reported as `present`, `absent` or `blank` and never as
+  /// its value: the `store_rail_key` message is built from the state alone, so
+  /// there is no path from the consumer's config text into this output. The
+  /// config is read as text and the key's literal never leaves
+  /// [storeKeyState].
+  Map<String, Object> jsonReport() {
+    final List<Map<String, Object>> checks = <Map<String, Object>>[
+      _check(
+        'dependency_declared',
+        pluginDeclared(),
+        'magic_payments is declared in $_pubspecPath',
+        '$_pubspecPath does not declare magic_payments under dependencies',
+        'add magic_payments to the dependencies in $_pubspecPath, then run '
+            '`flutter pub get`',
+      ),
+      _check(
+        'dependency_resolved',
+        pluginResolved(),
+        'magic_payments is resolved in $_packageConfigPath',
+        'magic_payments is not resolved in $_packageConfigPath',
+        'run `flutter pub get`',
+      ),
+      _check(
+        'config_published',
+        configExists(),
+        '$_configPath exists',
+        '$_configPath not found',
+        'run `dart run <app>:artisan payments:install`',
+      ),
+    ];
+
+    final List<String> configProblems = configIssues();
+    checks.add(
+      _check(
+        'config_valid',
+        configProblems.isEmpty,
+        '$_configPath declares the payments root and a served driver',
+        configProblems.join('; '),
+        'run `dart run <app>:artisan payments:install`, or set the driver with '
+            '`dart run <app>:artisan payments:configure --driver=platform`',
+      ),
+    );
+
+    checks.addAll(<Map<String, Object>>[
+      _check(
+        'provider_registered',
+        providerRegistered(),
+        '$_appConfigPath registers PaymentsServiceProvider',
+        '$_appConfigPath does not register PaymentsServiceProvider in its '
+            'providers list',
+        'run `dart run <app>:artisan payments:install`',
+      ),
+      _check(
+        'config_factory_wired',
+        configFactoryWired(),
+        '$_mainPath passes paymentsConfig to configFactories',
+        '$_mainPath does not pass paymentsConfig to configFactories',
+        'run `dart run <app>:artisan payments:install`',
+      ),
+      _storeKeyCheck(),
+    ]);
+
+    return <String, Object>{
+      'ok': checks.every((Map<String, Object> c) => c['status'] != 'error'),
+      'checks': checks,
+    };
+  }
+
+  /// One pass-or-fail check: `ok` when [passed], otherwise `error` carrying
+  /// [fix].
+  Map<String, Object> _check(
+    String id,
+    bool passed,
+    String okMessage,
+    String errorMessage,
+    String fix,
+  ) {
+    return <String, Object>{
+      'id': id,
+      'status': passed ? 'ok' : 'error',
+      'message': passed ? okMessage : errorMessage,
+      if (!passed) 'fix': fix,
+    };
+  }
+
+  /// The store rail's key as a check that can warn but never fail, for the reason
+  /// [storeKeyState] gives. [storeKeyState] answers `declared` where this
+  /// vocabulary says `present`, so an agent reads the same three words in every
+  /// report this command emits.
+  Map<String, Object> _storeKeyCheck() {
+    final String declared = storeKeyState();
+    final bool present = declared == 'declared';
+    final String state = present ? 'present' : declared;
+
+    return <String, Object>{
+      'id': 'store_rail_key',
+      'status': present ? 'ok' : 'warn',
+      'message': 'payments.revenuecat.public_sdk_key: $state',
+      if (!present)
+        'fix':
+            "set payments.revenuecat.public_sdk_key in $_configPath; iOS and "
+            'Android builds throw at purchase time without it, web and desktop '
+            'builds never read it',
+    };
+  }
+
   @override
   Future<int> handle(ArtisanContext ctx) async {
+    if (ctx.input.option('json') as bool? ?? false) {
+      final Map<String, Object> report = jsonReport();
+
+      // Nothing but the object on stdout: a banner would make the output
+      // unparseable, which is the one thing this mode is for.
+      ctx.output.writeln(jsonEncode(report));
+
+      return report['ok'] == true ? 0 : 1;
+    }
+
     ctx.output.info(ConsoleStyle.header('Magic Payments'));
 
     final bool verbose = ctx.input.option('verbose') as bool? ?? false;

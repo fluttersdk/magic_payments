@@ -7,6 +7,11 @@
 - <a name="toc-reads"></a>[BillingService: Five Reads, Honourable Everywhere](#reads)
 - <a name="toc-web"></a>[WebBillingService: the Stripe Rail](#web)
 - <a name="toc-store"></a>[StoreBillingService: Declared, Not Implemented](#store)
+  - [Product keys, on both rails](#product-keys)
+  - [`products()`: the store's own prices](#store-prices)
+  - [`PurchaseContext`](#purchase-context)
+  - [What the store rail refuses](#store-refusals)
+  - [Typed errors](#errors)
 - <a name="toc-authority"></a>[Entitlement Authority Belongs to the Backend](#authority)
 - <a name="toc-axis"></a>[The Rail and the Platform Are Different Axes](#axis)
 
@@ -71,12 +76,11 @@ owns the type it wants to decode them into.
 ```dart
 abstract class WebBillingService {
   Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required BillingCycle cycle,
+    required String productKey,
     required String successUrl,
     required String cancelUrl,
   });
-  Future<void> swap({required String plan, required BillingCycle cycle});
+  Future<void> swap({required String productKey});
   Future<void> cancel();
   Future<String> openPortal({String? returnUrl});
 }
@@ -90,19 +94,20 @@ renders an upgrade button, rather than rendering one and catching the platform's
 final WebBillingService? web = Payments.web;
 if (web != null) {
   await web.checkout(
-    plan: 'pro',
-    cycle: BillingCycle.annual,
+    productKey: 'pro_annual',
     successUrl: 'https://example.com/billing?checkout=success',
     cancelUrl: 'https://example.com/billing?checkout=cancel',
   );
 }
 ```
 
-`cycle` is required and has no default. A tier is not a price: a vendor selling `pro` monthly and
-again at a discounted annual rate has two, and a call that omitted the cycle would let the backend
-pick one while the screen showed the other. The producer resolves the price from the (tier, cycle)
-pair and refuses with a 422 when it has none mapped, which is how an adopter who sells only monthly
-learns that rather than having a customer quietly charged the wrong figure.
+One product key names the tier AND the cycle together (see [Product keys](#product-keys)). A tier is
+not a price: a vendor selling `pro` monthly and again at a discounted annual rate has two products,
+and when tier and cycle travelled as two words a call that lost the second let the backend pick a
+price while the screen showed the other. A single key cannot be half-sent. `checkout` and `swap`
+send it as `product`; the producer resolves the price from the key and refuses with a 422 when it
+has none mapped, which is how an adopter learns that rather than having a customer quietly charged
+the wrong figure.
 
 A cancellation on this rail is normally end-of-period, not immediate: the entitlement it leaves
 behind still grants until `BillingEntitlement.currentPeriodEnd`. Re-read the entitlement rather than
@@ -115,9 +120,11 @@ assuming the call revoked anything.
 ```dart
 abstract class StoreBillingService {
   Future<void> identify(String appUserId);
-  Future<bool> purchase({required String plan});
+  Future<bool> purchase(String productKey, {PurchaseContext? context});
+  Future<Map<String, StoreProductOffer>> products(List<String> productKeys);
   Future<bool> restore();
   Future<void> openStoreManagement();
+  ManageVia get store;
 }
 ```
 
@@ -142,7 +149,7 @@ tapped Buy. The vendor's backend may not have been told yet by the time the purc
 ```dart
 final StoreBillingService? store = Payments.store;
 if (store != null) {
-  final bool bought = await store.purchase(plan: 'pro');
+  final bool bought = await store.purchase('pro_annual');
   if (bought) {
     // The store is done. The entitlement may not have caught up yet.
     // Treat a stale answer as "not yet", never as a failure.
@@ -155,6 +162,94 @@ Building a UI that reads `purchase()`'s `true` as an entitlement grant is the bu
 exists to prevent on the store rail specifically. It is safe on every OTHER call in this package
 because every other write either confirms synchronously (the web rail's `checkout`, `swap`,
 `cancel`) or is itself a read; only a store purchase carries this asynchronous gap.
+
+### <a name="product-keys"></a>Product keys, on both rails
+
+`purchase`, `checkout` and `swap` all take the same thing: the vendor's own catalogue key, such as
+`'pro_annual'`, which is also the key a `getPlans()` row carries. It is never a store product id and
+never a Stripe price id. Which store product or price a key maps to belongs to the rail's catalogue
+(on the store rail the key is the RevenueCat package identifier, searched in the current offering
+first and then the rest; on the web rail, the backend's price table), so adding or repricing a
+product needs no client release. A product's `ProductType` (`subscription`, `consumable`,
+`non_consumable`, `physical`) says what a purchase leaves behind; only a subscription key carries a
+cycle.
+
+### <a name="store-prices"></a>`products()`: the store's own prices
+
+```dart
+final Map<String, StoreProductOffer> offers = await store.products(<String>['pro_monthly', 'pro_annual']);
+final StoreProductOffer? annual = offers['pro_annual'];
+```
+
+A store build renders the store's figures, not the catalogue's, because the store decides currency,
+tax and rounding and its sheet will show them. A `StoreProductOffer` carries `priceString` (already
+localized), `currencyCode`, `price`, an ISO `subscriptionPeriod` and the intro-price fields
+(`introPrice`, `introPriceString`, `introPeriod`). A key the store has no product for is absent from
+the map; render that product as unavailable rather than guessing a price. `products()` resolves
+through the same offering packages `purchase` uses, so a key it prices is a key a purchase can buy.
+
+### <a name="store-getter"></a>`store`: which store this is
+
+`StoreBillingService.store` answers `ManageVia.appStore` or `ManageVia.playStore`. Compare it with
+`BillingEntitlement.manageVia` to tell a subscription this store can change from one another rail
+sold, without asking the running platform.
+
+### <a name="purchase-context"></a>`PurchaseContext`: telling an upgrade from a downgrade
+
+A store knows products, not tiers. When the customer already holds a subscription, pass the two facts
+the rail needs, distilled from the catalogue you already read:
+
+```dart
+await store.purchase(
+  'business_annual',
+  context: const PurchaseContext(
+    tierOrder: <String>['free', 'pro', 'business'],
+    tierOfProduct: <String, String>{'pro_monthly': 'pro', 'business_annual': 'business'},
+  ),
+);
+```
+
+On Google Play the context decides the proration of a product change: a cycle change inside one tier
+is charged at full price without proration, and a move across tiers is prorated and deferred.
+Without a context the rail cannot tell the two apart.
+
+### <a name="store-refusals"></a>What the store rail refuses
+
+`purchase` and `restore` refuse, rather than guess, in these cases. Each throws a `BillingException`
+with a typed code (see [Typed errors](#errors)):
+
+- **Identity.** Nothing was identified (`notIdentified`), or the SDK's `appUserID` is not the id
+  `identify()` bound (`identityMismatch`). A purchase attributed to another account is one the backend
+  cannot give to the right customer.
+- **Another store owns the subscription** (`managedElsewhere`). A subscription managed by Stripe, or
+  by the other store, is not changed from here.
+- **An active product this build cannot name** (`unmappedActiveProduct`). The account holds an active
+  product of this store that is not in the offerings, so no change can be computed safely.
+
+On Android a product change is passed to Play with the proration the context implies; the customer
+sees Play's own sheet.
+
+### <a name="errors"></a>Typed errors: `BillingException.code`
+
+Switch on `BillingException.code`, never on `message`, which is prose that differs per rail and per
+locale. The code is client-side only and never crosses the wire.
+
+| `BillingErrorCode` | Meaning |
+|--------------------|---------|
+| `notConfigured` | no `public_sdk_key` in this build |
+| `notIdentified` | no paying account identified before a purchase |
+| `identityMismatch` | the SDK is bound to a different account than the one asking |
+| `managedElsewhere` | another rail manages the subscription |
+| `unmappedActiveProduct` | an active product is not in the offerings |
+| `productUnavailable` | the rail has no product for the key |
+| `pending` | the store has not settled it (parental approval, deferred payment); not a failure to retry |
+| `receiptInUse` | the receipt belongs to another paying account |
+| `alreadyOwned` | the customer already holds the product |
+| `network` | the request or its answer never arrived |
+| `store` | the store refused for a reason none of the above names |
+| `unknown` | no cause named |
+
+A customer dismissing the sheet is `false` from `purchase`, not an exception.
 
 ### <a name="store-identity"></a>Keeping the Store Identified
 

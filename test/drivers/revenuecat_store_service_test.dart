@@ -10,7 +10,13 @@ import 'package:magic_payments/magic_payments.dart';
 import 'package:magic_payments/src/drivers/revenuecat_store_service.dart';
 import 'package:magic_payments/src/drivers/store_billing_service_factory.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
-    show Offering, Offerings, Package, PurchasesErrorCode;
+    show
+        Offering,
+        Offerings,
+        Package,
+        PurchasesErrorCode,
+        StoreProductChangeInfo,
+        StoreReplacementMode;
 
 import '../test_helper.dart';
 
@@ -19,45 +25,82 @@ import '../test_helper.dart';
 /// tracking refuses a non-UUID App User ID in some configurations.
 const String _appUserId = '9f8c1d2e-4b3a-4c1d-8e7f-0a1b2c3d4e5f';
 
+/// Another paying subject, the one a device left bound elsewhere is bound to.
+const String _otherUserId = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
+
+/// An introductory price in the SDK's own wire shape, copied from the producer
+/// (`purchases_flutter-10.15.2/test/introductory_price_test.dart`'s
+/// `mockIntroductoryPriceJson`, read by `IntroductoryPrice.fromJson`).
+const Map<String, Object> _introPriceJson = {
+  'price': 0.0,
+  'priceString': r'$0.00',
+  'period': 'P2W',
+  'cycles': 1,
+  'periodUnit': 'DAY',
+  'periodNumberOfUnits': 14,
+};
+
 /// A `Package` payload in the SDK's own wire shape.
 ///
 /// Copied from the producer, which for this seam is the SDK itself
 /// (`purchases_flutter-10.9.1/test/offering_test.dart`'s `generateOfferingJSON`,
 /// read by `Package.fromJson`). Written from memory it would decode into a
 /// package whose identifier the lookup under test could never match.
-Map<String, dynamic> _packageJson(String identifier, String productId) => {
+Map<String, dynamic> _packageJson(
+  String identifier,
+  String productId, {
+  String period = 'P1M',
+  double price = 29.0,
+  String priceString = r'$29.00',
+  Map<String, Object>? introPrice,
+}) => {
   'identifier': identifier,
   'packageType': 'MONTHLY',
   'product': {
     'identifier': productId,
     'description': 'Everything a team on call needs.',
     'title': 'Pro',
-    'price': 29.0,
-    'priceString': r'$29.00',
+    'price': price,
+    'priceString': priceString,
     'currencyCode': 'USD',
-    'introPrice': null,
+    'introPrice': introPrice,
     'discounts': null,
     'productCategory': null,
     'defaultOption': null,
     'subscriptionOptions': null,
     'presentedOfferingIdentifier': null,
-    'subscriptionPeriod': 'P1M',
+    'subscriptionPeriod': period,
   },
   'presentedOfferingContext': {'offeringIdentifier': 'default'},
 };
 
 /// An [Offering] carrying one package per (plan, product) pair given.
-Offering _offering(String identifier, Map<String, String> packages) =>
+///
+/// [periods] names the billing period of a plan whose period is not monthly.
+Offering _offering(
+  String identifier,
+  Map<String, String> packages, {
+  Map<String, String> periods = const {},
+}) => _offeringOf(
+  identifier,
+  packages.entries
+      .map(
+        (MapEntry<String, String> entry) => _packageJson(
+          entry.key,
+          entry.value,
+          period: periods[entry.key] ?? 'P1M',
+        ),
+      )
+      .toList(),
+);
+
+/// An [Offering] carrying the package payloads given, verbatim.
+Offering _offeringOf(String identifier, List<Map<String, dynamic>> packages) =>
     Offering.fromJson({
       'identifier': identifier,
       'serverDescription': '',
       'metadata': <String, Object>{},
-      'availablePackages': packages.entries
-          .map(
-            (MapEntry<String, String> entry) =>
-                _packageJson(entry.key, entry.value),
-          )
-          .toList(),
+      'availablePackages': packages,
       'lifetime': null,
       'annual': null,
       'sixMonth': null,
@@ -75,6 +118,57 @@ Offerings _catalogue() {
   return Offerings(<String, Offering>{'default': current}, current: current);
 }
 
+/// The Play catalogue: two subscriptions, each with a monthly and an annual
+/// base plan, in RevenueCat's `subscriptionId:basePlanId` product id shape.
+Offerings _playCatalogue() {
+  final Offering current = _offering(
+    'default',
+    const {
+      'pro_monthly': 'pro_sub:monthly',
+      'pro_annual': 'pro_sub:annual',
+      'business_monthly': 'business_sub:monthly',
+      'business_annual': 'business_sub:annual',
+    },
+    periods: const {'pro_annual': 'P1Y', 'business_annual': 'P1Y'},
+  );
+
+  return Offerings(<String, Offering>{'default': current}, current: current);
+}
+
+/// The App Store catalogue: bare product ids, which never carry a `:`.
+Offerings _appStoreCatalogue() {
+  final Offering current = _offering(
+    'default',
+    const {
+      'pro_monthly': 'com.app.pro.monthly',
+      'pro_annual': 'com.app.pro.annual',
+    },
+    periods: const {'pro_annual': 'P1Y'},
+  );
+
+  return Offerings(<String, Offering>{'default': current}, current: current);
+}
+
+/// The catalogue's tier facts for the Play catalogue above.
+const PurchaseContext _tiers = PurchaseContext(
+  tierOrder: ['free', 'pro', 'business'],
+  tierOfProduct: {
+    'pro_monthly': 'pro',
+    'pro_annual': 'pro',
+    'business_monthly': 'business',
+    'business_annual': 'business',
+  },
+);
+
+/// The refusal a purchase or restore must end in, by its code.
+Matcher _refusedWith(BillingErrorCode code) => throwsA(
+  isA<BillingException>().having(
+    (BillingException error) => error.code,
+    'code',
+    code,
+  ),
+);
+
 void main() {
   setUp(() {
     resetPaymentsState();
@@ -83,9 +177,14 @@ void main() {
     // for a container error instead of the translation under test.
     Log.fake();
     Config.set(RevenueCatStoreService.apiKeyConfigKey, 'appl_public_test_key');
+    // The session pays as the subject every fake rail starts bound to, so the
+    // identity guard passes unless a test says otherwise.
+    StoreIdentitySync.billableId = () => _appUserId;
   });
 
   tearDown(() {
+    StoreIdentitySync.detach();
+    StoreIdentitySync.billableId = null;
     Log.unfake();
     resetPaymentsState();
   });
@@ -123,6 +222,17 @@ void main() {
         throwsA(isA<BillingException>()),
       );
       expect(rail.configured, isEmpty);
+    });
+
+    test('a missing key is refused as notConfigured', () async {
+      // A caller switches on the code, and this one tells an operator rather
+      // than a customer what to fix.
+      Config.set(RevenueCatStoreService.apiKeyConfigKey, null);
+
+      await expectLater(
+        _FakeStoreRail().purchase('pro'),
+        _refusedWith(BillingErrorCode.notConfigured),
+      );
     });
 
     test('the key is read once and the SDK configured once', () async {
@@ -415,19 +525,551 @@ void main() {
     });
   });
 
-  group('the rail resolves only where a store exists', () {
-    test('a store platform resolves the RevenueCat driver', () {
-      expect(
-        createStoreRail(onStorePlatform: true),
-        isA<RevenueCatStoreService>(),
+  group('purchase and restore refuse a rail bound to another subject', () {
+    test('no paying subject in the session refuses as notIdentified', () async {
+      StoreIdentitySync.billableId = () => null;
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      await expectLater(
+        rail.purchase('pro'),
+        _refusedWith(BillingErrorCode.notIdentified),
       );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('an empty paying subject is refused like an absent one', () async {
+      StoreIdentitySync.billableId = () => '';
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      await expectLater(
+        rail.purchase('pro'),
+        _refusedWith(BillingErrorCode.notIdentified),
+      );
+    });
+
+    test(
+      'a rail bound to another subject refuses before the sheet opens',
+      () async {
+        // The webhook attributes a purchase to the App User ID the rail holds,
+        // so buying here would hand team B's money to team A's account.
+        StoreIdentitySync.billableId = () => _otherUserId;
+        final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+        await expectLater(
+          rail.purchase('pro'),
+          _refusedWith(BillingErrorCode.identityMismatch),
+        );
+        expect(rail.purchased, isEmpty);
+      },
+    );
+
+    test('an anonymous rail identity is a mismatch, not a pass', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _catalogue(),
+        appUserId: r'$RCAnonymousID:8c0f2a',
+      );
+
+      await expectLater(
+        rail.purchase('pro'),
+        _refusedWith(BillingErrorCode.identityMismatch),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('restore refuses a rail bound to another subject', () async {
+      // A restore aliases the store receipt onto whoever the rail holds, so it
+      // moves a subscription between paying subjects exactly like a purchase.
+      StoreIdentitySync.billableId = () => _otherUserId;
+      final _FakeStoreRail rail = _FakeStoreRail(restores: true);
+
+      await expectLater(
+        rail.restore(),
+        _refusedWith(BillingErrorCode.identityMismatch),
+      );
+      expect(rail.restoreCalls, 0);
+    });
+
+    test('restore refuses with no paying subject', () async {
+      StoreIdentitySync.billableId = () => null;
+      final _FakeStoreRail rail = _FakeStoreRail(restores: true);
+
+      await expectLater(
+        rail.restore(),
+        _refusedWith(BillingErrorCode.notIdentified),
+      );
+      expect(rail.restoreCalls, 0);
+    });
+
+    test('purchase identifies the rail first, then buys', () async {
+      // A rail still on the anonymous id it booted with is re-bound by the sync
+      // the purchase awaits, so the comparison after it passes.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _catalogue(),
+        appUserId: r'$RCAnonymousID:8c0f2a',
+      );
+      Payments.extend(PaymentsManager.storeRole, () => rail);
+
+      expect(await rail.purchase('pro'), isTrue);
+      expect(rail.loggedIn, [_appUserId]);
+      expect(rail.purchased, ['pro']);
+    });
+
+    test('restore identifies the rail first, then restores', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        restores: true,
+        appUserId: r'$RCAnonymousID:8c0f2a',
+      );
+      Payments.extend(PaymentsManager.storeRole, () => rail);
+
+      expect(await rail.restore(), isTrue);
+      expect(rail.loggedIn, [_appUserId]);
+    });
+
+    test(
+      'an identify outside the sync is not skipped as a repeat later',
+      () async {
+        // The sync's repeat guard has to describe the rail's real binding. A
+        // direct identify moved the rail, so the next sync must move it back.
+        final _FakeStoreRail rail = _FakeStoreRail();
+        Payments.extend(PaymentsManager.storeRole, () => rail);
+
+        await StoreIdentitySync.syncNow();
+        await rail.identify(_otherUserId);
+        await StoreIdentitySync.syncNow();
+
+        expect(rail.loggedIn, [_appUserId, _otherUserId, _appUserId]);
+      },
+    );
+
+    test('a direct identify of the subject spares the sync a repeat', () async {
+      // The other half of the recorded binding: a login that succeeded is
+      // recorded, so the sync does not log the same subject in twice.
+      final _FakeStoreRail rail = _FakeStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => rail);
+
+      await rail.identify(_appUserId);
+      await StoreIdentitySync.syncNow();
+
+      expect(rail.loggedIn, [_appUserId]);
+    });
+
+    test('a failed identify leaves the next sync free to retry', () async {
+      // The rail's binding after a failed login is unknown, so the recorded id
+      // is cleared before the login rather than trusted across it.
+      final _FakeStoreRail rail = _FakeStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => rail);
+
+      await StoreIdentitySync.syncNow();
+      rail.raisingOnLogIn = StateError('login request dropped');
+      await expectLater(
+        rail.identify(_appUserId),
+        throwsA(isA<BillingException>()),
+      );
+      rail.raisingOnLogIn = null;
+      await StoreIdentitySync.syncNow();
+
+      expect(rail.loggedIn, [_appUserId, _appUserId]);
+    });
+  });
+
+  group('products prices the package purchase would buy', () {
+    test('each key carries the store product of its package', () async {
+      final Offering current = _offeringOf('2026', [
+        _packageJson(
+          'pro_annual',
+          'pro_sub:annual',
+          period: 'P1Y',
+          price: 349.99,
+          priceString: '₺349,99',
+          introPrice: _introPriceJson,
+        ),
+      ]);
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: Offerings(<String, Offering>{
+          'archived': _offeringOf('2024', [
+            _packageJson('pro_annual', 'pro_sub:legacy', price: 199.0),
+          ]),
+          '2026': current,
+        }, current: current),
+      );
+
+      final Map<String, StoreProductOffer> offers = await rail.products([
+        'pro_annual',
+      ]);
+
+      final StoreProductOffer offer = offers['pro_annual']!;
+      expect(offer.price, 349.99);
+      expect(offer.priceString, '₺349,99');
+      expect(offer.currencyCode, 'USD');
+      expect(offer.subscriptionPeriod, 'P1Y');
+      expect(offer.introPrice, 0.0);
+      expect(offer.introPriceString, r'$0.00');
+      expect(offer.introPeriod, 'P2W');
+    });
+
+    test('a product with no introductory offer carries none', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      final StoreProductOffer offer = (await rail.products(['pro']))['pro']!;
+
+      expect(offer.introPrice, isNull);
+      expect(offer.introPriceString, isNull);
+      expect(offer.introPeriod, isNull);
+    });
+
+    test('a key the store has no package for is absent', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      final Map<String, StoreProductOffer> offers = await rail.products([
+        'pro',
+        'enterprise',
+      ]);
+
+      expect(offers.keys, ['pro']);
+    });
+
+    test('a failure to fetch the catalogue is a BillingException', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        raisingOnOfferings: StateError('offerings request timed out'),
+      );
+
+      await expectLater(
+        rail.products(['pro']),
+        throwsA(isA<BillingException>()),
+      );
+    });
+  });
+
+  group('a subscription another store manages is never bought over', () {
+    test('an App Store product on the Play rail is managedElsewhere', () async {
+      // Buying here would charge the customer twice, once per store, for one
+      // subscription.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['com.app.pro.monthly'],
+      );
+
+      await expectLater(
+        rail.purchase('pro_annual', context: _tiers),
+        _refusedWith(BillingErrorCode.managedElsewhere),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('a Play product on the App Store rail is managedElsewhere', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _appStoreCatalogue(),
+        activeProducts: const ['pro_sub:monthly'],
+      );
+
+      await expectLater(
+        rail.purchase('pro_annual'),
+        _refusedWith(BillingErrorCode.managedElsewhere),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test(
+      'a Play product the catalogue cannot name is unmappedActiveProduct',
+      () async {
+        final _FakeStoreRail rail = _FakeStoreRail(
+          store: ManageVia.playStore,
+          offerings: _playCatalogue(),
+          activeProducts: const ['legacy_sub:monthly'],
+        );
+
+        await expectLater(
+          rail.purchase('pro_annual', context: _tiers),
+          _refusedWith(BillingErrorCode.unmappedActiveProduct),
+        );
+        expect(rail.purchased, isEmpty);
+      },
+    );
+
+    test(
+      'an App Store product the catalogue cannot name is unmappedActiveProduct',
+      () async {
+        final _FakeStoreRail rail = _FakeStoreRail(
+          offerings: _appStoreCatalogue(),
+          activeProducts: const ['com.app.legacy.monthly'],
+        );
+
+        await expectLater(
+          rail.purchase('pro_annual'),
+          _refusedWith(BillingErrorCode.unmappedActiveProduct),
+        );
+        expect(rail.purchased, isEmpty);
+      },
+    );
+
+    test('the App Store rail never passes a product change', () async {
+      // StoreKit moves a subscription inside its group on its own; a change
+      // record is a Play concept.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _appStoreCatalogue(),
+        activeProducts: const ['com.app.pro.monthly'],
+      );
+
+      expect(await rail.purchase('pro_annual', context: _tiers), isTrue);
+      expect(rail.purchasedProducts, ['com.app.pro.annual']);
+      expect(rail.productChanges, [isNull]);
+    });
+  });
+
+  group('a Play subscription is changed in place, never bought twice', () {
+    Future<StoreProductChangeInfo?> changeFor(
+      String active,
+      String productKey, {
+      PurchaseContext? context = _tiers,
+    }) async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: [active],
+      );
+
+      expect(await rail.purchase(productKey, context: context), isTrue);
+
+      return rail.productChanges.single;
+    }
+
+    Matcher change(String oldProduct, StoreReplacementMode mode) =>
+        isA<StoreProductChangeInfo>()
+            .having(
+              (StoreProductChangeInfo info) => info.oldProductIdentifier,
+              'oldProductIdentifier',
+              oldProduct,
+            )
+            .having(
+              (StoreProductChangeInfo info) => info.replacementMode,
+              'replacementMode',
+              mode,
+            );
+
+    test('no active subscription buys without a product change', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+      );
+
+      expect(await rail.purchase('pro_annual', context: _tiers), isTrue);
+      expect(rail.productChanges, [isNull]);
+    });
+
+    test('monthly to annual on one subscription charges full price', () async {
+      // Play allows only CHARGE_FULL_PRICE or WITHOUT_PRORATION for a base
+      // plan switch, and a longer period starts a fresh, longer cycle now.
+      expect(
+        await changeFor('pro_sub:monthly', 'pro_annual'),
+        change('pro_sub', StoreReplacementMode.chargeFullPrice),
+      );
+    });
+
+    test('annual to monthly on one subscription waits for renewal', () async {
+      expect(
+        await changeFor('pro_sub:annual', 'pro_monthly'),
+        change('pro_sub', StoreReplacementMode.withoutProration),
+      );
+    });
+
+    test('a higher tier is prorated now', () async {
+      expect(
+        await changeFor('pro_sub:annual', 'business_annual'),
+        change('pro_sub', StoreReplacementMode.chargeProratedPrice),
+      );
+    });
+
+    test('a lower tier is deferred to renewal', () async {
+      expect(
+        await changeFor('business_sub:monthly', 'pro_monthly'),
+        change('business_sub', StoreReplacementMode.deferred),
+      );
+    });
+
+    test('a tier change with no catalogue context is refused', () async {
+      // Without the tier order an upgrade and a downgrade look the same, and
+      // guessing either one charges somebody the wrong amount.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['pro_sub:annual'],
+      );
+
+      await expectLater(
+        rail.purchase('business_annual'),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('an active product with no tier in the context is refused', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['pro_sub:annual'],
+      );
+
+      await expectLater(
+        rail.purchase(
+          'business_annual',
+          context: const PurchaseContext(
+            tierOrder: ['pro', 'business'],
+            tierOfProduct: {'business_annual': 'business'},
+          ),
+        ),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+    });
+
+    test('a target tier missing from the tier order is refused', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['pro_sub:annual'],
+      );
+
+      await expectLater(
+        rail.purchase(
+          'business_annual',
+          context: const PurchaseContext(
+            tierOrder: ['pro'],
+            tierOfProduct: {'pro_annual': 'pro', 'business_annual': 'business'},
+          ),
+        ),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+    });
+
+    test('two active Play subscriptions are refused as ambiguous', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['pro_sub:monthly', 'business_sub:monthly'],
+      );
+
+      await expectLater(
+        rail.purchase('business_annual', context: _tiers),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('buying the product already held is alreadyOwned', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['pro_sub:monthly'],
+      );
+
+      await expectLater(
+        rail.purchase('pro_monthly', context: _tiers),
+        _refusedWith(BillingErrorCode.alreadyOwned),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+  });
+
+  group('a store failure reaches the caller as a typed code', () {
+    const Map<PurchasesErrorCode, BillingErrorCode> mapping = {
+      PurchasesErrorCode.paymentPendingError: BillingErrorCode.pending,
+      PurchasesErrorCode.receiptAlreadyInUseError:
+          BillingErrorCode.receiptInUse,
+      PurchasesErrorCode.receiptInUseByOtherSubscriberError:
+          BillingErrorCode.receiptInUse,
+      PurchasesErrorCode.productAlreadyPurchasedError:
+          BillingErrorCode.alreadyOwned,
+      PurchasesErrorCode.networkError: BillingErrorCode.network,
+      PurchasesErrorCode.offlineConnectionError: BillingErrorCode.network,
+      PurchasesErrorCode.storeProblemError: BillingErrorCode.store,
+      PurchasesErrorCode.configurationError: BillingErrorCode.notConfigured,
+      PurchasesErrorCode.productNotAvailableForPurchaseError:
+          BillingErrorCode.productUnavailable,
+      PurchasesErrorCode.invalidReceiptError: BillingErrorCode.unknown,
+    };
+
+    PlatformException raised(PurchasesErrorCode code) =>
+        PlatformException(code: code.index.toString(), message: code.name);
+
+    for (final MapEntry<PurchasesErrorCode, BillingErrorCode> entry
+        in mapping.entries) {
+      test('${entry.key.name} from the sheet is ${entry.value.name}', () async {
+        final _FakeStoreRail rail = _FakeStoreRail(
+          offerings: _catalogue(),
+          raisingOnPurchase: raised(entry.key),
+        );
+
+        await expectLater(rail.purchase('pro'), _refusedWith(entry.value));
+      });
+    }
+
+    test('a paymentPending from restore is pending too', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        raisingOnRestore: raised(PurchasesErrorCode.paymentPendingError),
+      );
+
+      await expectLater(rail.restore(), _refusedWith(BillingErrorCode.pending));
+    });
+
+    test('a network failure reading products is network', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        raisingOnOfferings: raised(PurchasesErrorCode.networkError),
+      );
+
+      await expectLater(
+        rail.products(['pro']),
+        _refusedWith(BillingErrorCode.network),
+      );
+    });
+
+    test('a non-numeric platform code is unknown, not a crash', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _catalogue(),
+        raisingOnPurchase: PlatformException(code: 'channel-error'),
+      );
+
+      await expectLater(
+        rail.purchase('pro'),
+        _refusedWith(BillingErrorCode.unknown),
+      );
+    });
+
+    test('a plan with no package is productUnavailable', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      await expectLater(
+        rail.purchase('enterprise'),
+        _refusedWith(BillingErrorCode.productUnavailable),
+      );
+    });
+  });
+
+  group('the rail resolves only where a store exists', () {
+    test(
+      'iOS resolves the RevenueCat driver selling through the App Store',
+      () {
+        final StoreBillingService? rail = createStoreRail(isIOS: true);
+
+        expect(rail, isA<RevenueCatStoreService>());
+        expect(rail!.store, ManageVia.appStore);
+      },
+    );
+
+    test('Android resolves the RevenueCat driver selling through Play', () {
+      final StoreBillingService? rail = createStoreRail(
+        isIOS: false,
+        isAndroid: true,
+      );
+
+      expect(rail, isA<RevenueCatStoreService>());
+      expect(rail!.store, ManageVia.playStore);
     });
 
     test('a dart:io platform without a store resolves null', () {
       // macOS, Windows and Linux all carry `dart:library.io` and none of them
       // has StoreKit or Play Billing, so the io ARM cannot hand the driver back
       // unconditionally: one compiled artifact serves all five platforms.
-      expect(createStoreRail(onStorePlatform: false), isNull);
+      expect(createStoreRail(isIOS: false, isAndroid: false), isNull);
     });
 
     test('the desktop test host itself has no store rail', () {
@@ -446,6 +1088,7 @@ void main() {
 /// method, which is the convention in `test/test_helper.dart`.
 class _FakeStoreRail extends RevenueCatStoreService {
   _FakeStoreRail({
+    super.store = ManageVia.appStore,
     this.offerings,
     this.raisingOnLogIn,
     this.raisingOnAttributes,
@@ -456,13 +1099,24 @@ class _FakeStoreRail extends RevenueCatStoreService {
     this.restores = false,
     this.managementUrl,
     this.opens = true,
-  });
+    String appUserId = _appUserId,
+    this.activeProducts = const [],
+  }) : boundUserId = appUserId;
 
   /// The catalogue the offerings seam answers with.
   final Offerings? offerings;
 
+  /// The App User ID the rail is bound to: the one it started with, then the
+  /// last one logged in, which is what the SDK itself would answer.
+  String boundUserId;
+
+  /// The store product ids the customer-info seam reports active.
+  final List<String> activeProducts;
+
   /// Raised from the seam each one is named for, or null to answer normally.
-  final Object? raisingOnLogIn;
+  ///
+  /// The login one is mutable so a test can fail one identify among several.
+  Object? raisingOnLogIn;
   final Object? raisingOnAttributes;
   final Object? raisingOnOfferings;
   final Object? raisingOnPurchase;
@@ -496,6 +1150,12 @@ class _FakeStoreRail extends RevenueCatStoreService {
   /// The store product identifier behind each of those packages.
   final List<String> purchasedProducts = [];
 
+  /// The product change each of those purchases carried, null for none.
+  final List<StoreProductChangeInfo?> productChanges = [];
+
+  /// How many times the restore seam was reached.
+  int restoreCalls = 0;
+
   /// Every URL the driver asked the launch seam to open, in order.
   final List<String> launched = [];
 
@@ -506,7 +1166,14 @@ class _FakeStoreRail extends RevenueCatStoreService {
   Future<void> logInSdk(String appUserId) async {
     if (raisingOnLogIn != null) throw raisingOnLogIn!;
     loggedIn.add(appUserId);
+    boundUserId = appUserId;
   }
+
+  @override
+  Future<String> currentAppUserId() async => boundUserId;
+
+  @override
+  Future<List<String>> activeStoreProductIds() async => activeProducts;
 
   @override
   Future<void> setSubscriberAttributes(Map<String, String> values) async {
@@ -522,14 +1189,19 @@ class _FakeStoreRail extends RevenueCatStoreService {
   }
 
   @override
-  Future<void> purchaseStorePackage(Package package) async {
+  Future<void> purchaseStorePackage(
+    Package package, {
+    StoreProductChangeInfo? productChangeInfo,
+  }) async {
     if (raisingOnPurchase != null) throw raisingOnPurchase!;
     purchased.add(package.identifier);
     purchasedProducts.add(package.storeProduct.identifier);
+    productChanges.add(productChangeInfo);
   }
 
   @override
   Future<bool> restoreStorePurchases() async {
+    restoreCalls++;
     if (raisingOnRestore != null) throw raisingOnRestore!;
 
     return restores;

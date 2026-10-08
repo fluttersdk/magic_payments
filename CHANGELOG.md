@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **`payments:doctor --json` prints one object for an agent.** `{ok, checks: [{id, status, message, fix?}]}` with `status` one of `ok`, `warn` or `error`, the ids `dependency_declared`, `dependency_resolved`, `config_published`, `config_valid`, `provider_registered`, `config_factory_wired` and `store_rail_key`, and the same exit code as the human report. A key is only ever `present`, `absent` or `blank`, never its value. `payments_doctor` stays the only MCP tool. (`lib/src/cli/commands/doctor_command.dart`, `doc/basics/cli.md`)
+- **`StoreBillingService.products(List<String>)` reads the store's own prices**, keyed by catalogue key: `StoreProductOffer` carries the localized `priceString`, `currencyCode`, `price`, an ISO `subscriptionPeriod` and the intro-price fields. A key the store has no product for is absent from the map.
+- **`StoreBillingService.store` answers `ManageVia.appStore` or `ManageVia.playStore`**, and **`PurchaseContext`** hands a purchase the catalogue's tier order so the rail can tell an upgrade from a downgrade (on Play, a cycle change inside a tier is charged at full price without proration, a move across tiers is prorated and deferred).
+- **`BillingException.code`, a typed `BillingErrorCode`**: `notConfigured`, `notIdentified`, `identityMismatch`, `managedElsewhere`, `unmappedActiveProduct`, `productUnavailable`, `pending`, `receiptInUse`, `alreadyOwned`, `network`, `store`, `unknown`. Branch on the code, never on `message`.
+- **`ProductType`** (`subscription`, `consumable`, `non_consumable`, `physical`), and `BillingEntitlement.productKey` (wire `product`), `owned`, `balances` and `allowances`.
+- **The store rail refuses instead of guessing.** `purchase` and `restore` refuse unless the SDK's `appUserID` equals the id `identify()` bound (`notIdentified`, `identityMismatch`); a purchase is refused when another rail manages the subscription (`managedElsewhere`) or an active product of this store is not in the offerings (`unmappedActiveProduct`). (`doc/basics/rails.md`, `doc/getting-started/configuration.md`)
+
+### Changed
+
+- **BREAKING: a purchase names a catalogue product key, not a tier and a cycle.** `StoreBillingService.purchase({required String plan})` is `purchase(String productKey, {PurchaseContext? context})`; `WebBillingService.checkout({plan, cycle, ...})` is `checkout({required String productKey, successUrl, cancelUrl})` and `swap({plan, cycle})` is `swap({required String productKey})`, which POSTs `{product: key}`. Migration: pass the key your catalogue uses for that tier and cycle (`'pro'` plus `BillingCycle.annual` becomes `'pro_annual'`); on the store rail the key must equal a RevenueCat package identifier.
+- **BREAKING: `StoreBillingService` gained `products()` and the `store` getter.** A class that implements it must add both; a subclass of `RevenueCatStoreService` inherits them.
+- **BREAKING: a failed billing call carries a typed `code`.** Code that matched on a `BillingException` message must switch on `BillingException.code`; a throw site that names no cause answers `BillingErrorCode.unknown`.
+- **BREAKING: `BillingEntitlement.aiAnalysisTrialsRemaining` is removed.** It was one vendor's allowance on a shared model. Read it from `BillingEntitlement.allowances` or `balances`, which carry whatever the backend sends.
+- **`purchases_flutter` is `^10.15.1`.** (`pubspec.yaml`)
+
 ## 0.0.7
 
 ### Changed
