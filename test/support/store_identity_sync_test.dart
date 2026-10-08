@@ -26,13 +26,22 @@ class _RecordingStoreRail implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async => false;
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async =>
+      false;
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async => const {};
 
   @override
   Future<bool> restore() async => false;
 
   @override
   Future<void> openStoreManagement() async {}
+
+  @override
+  ManageVia get store => ManageVia.appStore;
 }
 
 /// A store rail whose identify for an id finishes only when the test releases
@@ -59,13 +68,22 @@ class _GatedStoreRail implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async => false;
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async =>
+      false;
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async => const {};
 
   @override
   Future<bool> restore() async => false;
 
   @override
   Future<void> openStoreManagement() async {}
+
+  @override
+  ManageVia get store => ManageVia.appStore;
 }
 
 /// A store rail whose identify fails with something other than a

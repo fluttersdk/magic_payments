@@ -129,7 +129,7 @@ void main() {
       final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
 
       await rail.identify(_appUserId);
-      await rail.purchase(plan: 'pro');
+      await rail.purchase('pro');
       await rail.restore();
 
       expect(rail.configured, ['appl_public_test_key']);
@@ -226,7 +226,7 @@ void main() {
     test('a plan with a package is purchased and reported true', () async {
       final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
 
-      expect(await rail.purchase(plan: 'pro'), isTrue);
+      expect(await rail.purchase('pro'), isTrue);
       expect(rail.purchased, ['pro']);
     });
 
@@ -241,7 +241,7 @@ void main() {
         }, current: current),
       );
 
-      await rail.purchase(plan: 'pro');
+      await rail.purchase('pro');
 
       expect(rail.purchasedProducts, ['pro_monthly']);
     });
@@ -252,7 +252,7 @@ void main() {
       final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
 
       await expectLater(
-        rail.purchase(plan: 'enterprise'),
+        rail.purchase('enterprise'),
         throwsA(
           isA<BillingException>().having(
             (BillingException error) => error.message,
@@ -277,7 +277,7 @@ void main() {
         ),
       );
 
-      expect(await rail.purchase(plan: 'pro'), isFalse);
+      expect(await rail.purchase('pro'), isFalse);
     });
 
     test('a store problem is a failure, not a dismissal', () async {
@@ -291,10 +291,7 @@ void main() {
         ),
       );
 
-      await expectLater(
-        rail.purchase(plan: 'pro'),
-        throwsA(isA<BillingException>()),
-      );
+      await expectLater(rail.purchase('pro'), throwsA(isA<BillingException>()));
     });
 
     test('a platform error with a non-numeric code is still ours', () async {
@@ -307,10 +304,7 @@ void main() {
         raisingOnPurchase: PlatformException(code: 'channel-error'),
       );
 
-      await expectLater(
-        rail.purchase(plan: 'pro'),
-        throwsA(isA<BillingException>()),
-      );
+      await expectLater(rail.purchase('pro'), throwsA(isA<BillingException>()));
     });
 
     test('a raw failure from the sheet becomes a BillingException', () async {
@@ -322,10 +316,7 @@ void main() {
         raisingOnPurchase: StateError('no StoreKit on this device'),
       );
 
-      await expectLater(
-        rail.purchase(plan: 'pro'),
-        throwsA(isA<BillingException>()),
-      );
+      await expectLater(rail.purchase('pro'), throwsA(isA<BillingException>()));
     });
 
     test('a failure to fetch the catalogue is a BillingException', () async {
@@ -335,10 +326,7 @@ void main() {
         raisingOnOfferings: StateError('offerings request timed out'),
       );
 
-      await expectLater(
-        rail.purchase(plan: 'pro'),
-        throwsA(isA<BillingException>()),
-      );
+      await expectLater(rail.purchase('pro'), throwsA(isA<BillingException>()));
     });
 
     test('a BillingException from below is rethrown unchanged', () async {
@@ -348,7 +336,7 @@ void main() {
         raisingOnPurchase: original,
       );
 
-      await expectLater(rail.purchase(plan: 'pro'), throwsA(same(original)));
+      await expectLater(rail.purchase('pro'), throwsA(same(original)));
     });
   });
 

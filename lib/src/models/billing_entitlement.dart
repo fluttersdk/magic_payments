@@ -7,19 +7,22 @@ import '../enums/plan_status.dart';
 
 /// What the customer is entitled to, and where they manage it.
 ///
-/// The fourteen fields mirror the entitlement wire one for one, in its
+/// The seventeen fields mirror the entitlement wire one for one, in its
 /// rail-neutral vocabulary: nothing here names a payment rail's own dialect
 /// except [providerStatus], which is debug text and must never reach a gate or
 /// a computed field.
 ///
-/// FIVE of the fourteen are non-null guaranteed by the producer, and this
-/// decoder relies on it: [plan], [planStatus], [subscribed], [provider] and
-/// [manageVia]. The other nine are nullable, four of them on the Stripe rail BY
-/// DESIGN rather than by accident: [manageUrl] and [gracePeriodEndsAt] have no
-/// Stripe source at all, and [providerStatus] and [productId] stay null until a
-/// rail writes them. A decoder that defaulted any of the nine would claim a
-/// state no rail has reported, which is a different sentence from "not
-/// reported".
+/// SEVEN of the seventeen are never null: [planStatus], [subscribed],
+/// [provider] and [manageVia], which degrade to their non-entitling case, and
+/// the three holdings [owned], [balances] and [allowances], which degrade to
+/// empty. An empty holding is the same claim as an absent one (the customer
+/// holds nothing of that kind), which is why only those may default.
+///
+/// The other ten are nullable, and a decoder that defaulted any of them would
+/// claim a state no rail has reported, which is a different sentence from "not
+/// reported". Four are null on the Stripe rail BY DESIGN rather than by
+/// accident: [manageUrl] and [gracePeriodEndsAt] have no Stripe source at all,
+/// and [providerStatus] and [productId] stay null until a rail writes them.
 ///
 /// [raw] keeps the full decoded payload, so a caller can read a field this value
 /// object has not enumerated (a key a newer backend added) without waiting for a
@@ -53,11 +56,18 @@ class BillingEntitlement {
     this.currentPeriodEnd,
     this.trialEndsAt,
     this.gracePeriodEndsAt,
-    required this.aiAnalysisTrialsRemaining,
+    this.productKey,
+    this.owned = const [],
+    this.balances = const {},
+    this.allowances = const {},
     required this.raw,
   });
 
-  /// The active plan identifier (e.g. `'pro'`), or `null` when absent.
+  /// The active tier identifier (e.g. `'pro'`), or `null` when the producer
+  /// sent none.
+  ///
+  /// Required in the constructor although nullable, so a hand-built
+  /// entitlement says which tier it is, or says `null` out loud.
   final String? plan;
 
   /// Where the paid plan stands in its lifecycle, in the neutral vocabulary.
@@ -129,9 +139,27 @@ class BillingEntitlement {
   /// period"; there is no separate boolean on this wire.
   final DateTime? gracePeriodEndsAt;
 
-  /// Metered AI analysis setups the customer has left, or `null` when the tier
-  /// entitles AI analysis outright (nothing to count down).
-  final int? aiAnalysisTrialsRemaining;
+  /// The catalogue key of the product the subscription is on (e.g.
+  /// `'pro_annual'`), read from the `product` wire key, or `null` when no rail
+  /// has said.
+  ///
+  /// The vendor's own key, the same one `purchase` and `checkout` take, and not
+  /// [productId], which is a rail's SKU or price id. A caller compares this
+  /// against a catalogue row's `key` to mark the current product.
+  final String? productKey;
+
+  /// The catalogue keys of one-off products the customer owns for good (e.g.
+  /// `['lifetime']`). Empty when they own none or the producer predates it.
+  final List<String> owned;
+
+  /// Remaining units per consumable balance (e.g. `{'credits': 5}`). Empty
+  /// when there are none or the producer predates it.
+  final Map<String, int> balances;
+
+  /// The vendor's in-product allowances for the current tier, passed through
+  /// undecoded for the same reason catalogue rows are: their shape is the
+  /// vendor's product. Empty when the producer sends none.
+  final Map<String, dynamic> allowances;
 
   /// The full decoded entitlement payload.
   final Map<String, dynamic> raw;
@@ -143,6 +171,10 @@ class BillingEntitlement {
   /// wire has ever emitted; a `status` key does not exist on it, and a fixture
   /// that says otherwise decodes to [PlanStatus.none] here rather than quietly
   /// agreeing with itself.
+  ///
+  /// The three holdings accept a JSON `[]` as empty: PHP encodes an empty
+  /// associative array as a list, so `[]` is the producer saying "none", not a
+  /// malformed payload.
   factory BillingEntitlement.fromMap(Map<String, dynamic> map) {
     return BillingEntitlement(
       plan: map['plan'] as String?,
@@ -158,8 +190,10 @@ class BillingEntitlement {
       currentPeriodEnd: _instantFromWire(map['current_period_end']),
       trialEndsAt: _instantFromWire(map['trial_ends_at']),
       gracePeriodEndsAt: _instantFromWire(map['grace_period_ends_at']),
-      aiAnalysisTrialsRemaining: (map['ai_analysis_trials_remaining'] as num?)
-          ?.toInt(),
+      productKey: map['product'] as String?,
+      owned: _keysFromWire(map['owned']),
+      balances: _balancesFromWire(map['balances']),
+      allowances: _objectFromWire(map['allowances']),
       raw: map,
     );
   }
@@ -178,4 +212,28 @@ class BillingEntitlement {
 /// namespace for three lines of saved duplication.
 DateTime? _instantFromWire(Object? raw) {
   return raw is String ? DateTime.tryParse(raw) : null;
+}
+
+/// Decodes the `owned` list, keeping only its string entries.
+List<String> _keysFromWire(Object? raw) {
+  return raw is List ? raw.whereType<String>().toList() : const [];
+}
+
+/// Decodes the `balances` object, keeping only its numeric entries.
+///
+/// A list (PHP's empty object) or any other shape decodes to empty rather than
+/// throwing, the same way a malformed instant degrades to "not reported".
+Map<String, int> _balancesFromWire(Object? raw) {
+  if (raw is! Map) return const {};
+
+  return {
+    for (final MapEntry<Object?, Object?> entry in raw.entries)
+      if (entry.key is String && entry.value is num)
+        entry.key! as String: (entry.value! as num).toInt(),
+  };
+}
+
+/// Decodes the `allowances` object verbatim, or empty for any other shape.
+Map<String, dynamic> _objectFromWire(Object? raw) {
+  return raw is Map<String, dynamic> ? raw : const {};
 }

@@ -1,3 +1,5 @@
+import '../enums/billing_error_code.dart';
+
 /// Base exception for billing failures.
 ///
 /// Thrown when a request against a billing endpoint fails (a non-2xx response)
@@ -5,12 +7,21 @@
 /// answers differ: a write action reports the failure and stays on the form,
 /// while a read degrades to its last known state rather than blanking a screen
 /// the customer is paying for.
+///
+/// A caller that needs to tell failures apart switches on [code], never on
+/// [message]: the message is prose and may be reworded or localized.
 class BillingException implements Exception {
-  /// Creates a [BillingException] describing [message].
-  const BillingException(this.message);
+  /// Creates a [BillingException] describing [message], classified by [code].
+  ///
+  /// [code] defaults to [BillingErrorCode.unknown], so a throw site that names
+  /// no cause never claims one.
+  const BillingException(this.message, {this.code = BillingErrorCode.unknown});
 
   /// A human-readable description of the failure.
   final String message;
+
+  /// Why the call failed, as a case a caller can branch on.
+  final BillingErrorCode code;
 
   @override
   String toString() => 'BillingException: $message';

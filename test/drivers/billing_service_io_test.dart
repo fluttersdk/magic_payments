@@ -33,7 +33,10 @@ const Map<String, dynamic> _entitlementBody = {
     'current_period_end': '2026-09-01T12:00:00.000Z',
     'trial_ends_at': null,
     'grace_period_ends_at': null,
-    'ai_analysis_trials_remaining': null,
+    'product': 'pro_annual',
+    'owned': [],
+    'balances': [],
+    'allowances': [],
   },
 };
 
@@ -468,7 +471,7 @@ void main() {
       () async {
         final StoreBillingService contract = _RecordingStoreRail();
 
-        expect(await contract.purchase(plan: 'pro'), isTrue);
+        expect(await contract.purchase('pro_annual'), isTrue);
         expect(await contract.restore(), isFalse);
         await expectLater(contract.openStoreManagement(), completes);
       },
@@ -504,11 +507,20 @@ class _RecordingStoreRail implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async => true;
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async =>
+      true;
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async => const {};
 
   @override
   Future<bool> restore() async => false;
 
   @override
   Future<void> openStoreManagement() async {}
+
+  @override
+  ManageVia get store => ManageVia.appStore;
 }

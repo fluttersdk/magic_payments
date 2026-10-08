@@ -22,12 +22,17 @@ const List<String> _reads = [
   'getPaymentMethod',
 ];
 
-/// The four writes of each rail, keyed by the contract that owns them.
+/// The methods of each rail, keyed by the contract that owns them.
+///
+/// The store rail carries one more than the web rail: [products] reads the
+/// store's own localized prices, which only the store can answer and which a
+/// store build must show instead of the vendor's catalogue figure.
 const Map<String, List<String>> _railWrites = {
   'WebBillingService': ['checkout', 'swap', 'cancel', 'openPortal'],
   'StoreBillingService': [
     'identify',
     'purchase',
+    'products',
     'restore',
     'openStoreManagement',
   ],
@@ -96,10 +101,19 @@ void main() {
       expect(declared, _reads);
     });
 
-    test('each rail declares its own four writes and nothing else', () {
+    test('each rail declares its own methods and nothing else', () {
       for (final MapEntry<String, List<String>> rail in _railWrites.entries) {
         expect(_declaredMembers(rail.key), rail.value, reason: rail.key);
       }
+    });
+
+    test('the store rail names its own management surface as a getter', () {
+      // A getter rather than a method, so the member regex above does not see
+      // it: the store a rail sells through is a fact about the rail, not a call.
+      expect(
+        _strippedSource(File(_contracts['StoreBillingService']!)),
+        contains('  ManageVia get store;'),
+      );
     });
 
     test('no member name is declared on two contracts', () {
@@ -107,9 +121,9 @@ void main() {
         for (final String name in _contracts.keys) ..._declaredMembers(name),
       ];
 
-      // The vacuity guard first: thirteen members, or the sweep read something
+      // The vacuity guard first: fourteen members, or the sweep read something
       // other than the contracts.
-      expect(all, hasLength(13));
+      expect(all, hasLength(14));
       expect(
         all.toSet(),
         hasLength(all.length),

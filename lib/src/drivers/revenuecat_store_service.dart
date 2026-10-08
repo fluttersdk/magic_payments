@@ -18,7 +18,10 @@ import 'package:purchases_flutter/purchases_flutter.dart'
         PurchasesErrorHelper;
 
 import '../contracts/store_billing_service.dart';
+import '../enums/manage_via.dart';
 import '../exceptions/billing_exception.dart';
+import '../models/purchase_context.dart';
+import '../models/store_product_offer.dart';
 
 /// The STORE rail against RevenueCat: StoreKit on iOS, Play Billing on Android,
 /// both through one SDK.
@@ -74,7 +77,7 @@ import '../exceptions/billing_exception.dart';
 /// final StoreBillingService? store = Payments.store;
 /// if (store != null) {
 ///   await store.identify(team.id);
-///   if (await store.purchase(plan: 'pro')) {
+///   if (await store.purchase('pro_annual')) {
 ///     await Payments.billing.currentEntitlement();
 ///   }
 /// }
@@ -148,22 +151,22 @@ class RevenueCatStoreService implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async {
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async {
     await ensureConfigured();
 
     try {
       final Offerings offerings = await fetchOfferings();
-      final Package? package = packageFor(offerings, plan);
+      final Package? package = packageFor(offerings, productKey);
       if (package == null) {
         // Not a `false`. A dismissed sheet and a store with no product for this
         // plan are different events, and reporting the second as the first
         // hides a misconfigured catalogue behind a customer shrug.
         Log.error(
-          '[RevenueCatStoreService.purchase] no package identified "$plan" in '
-          '${offerings.all.length} offering(s)',
+          '[RevenueCatStoreService.purchase] no package identified '
+          '"$productKey" in ${offerings.all.length} offering(s)',
         );
         throw BillingException(
-          'No store product is configured for the "$plan" plan.',
+          'No store product is configured for "$productKey".',
         );
       }
 
@@ -191,6 +194,14 @@ class RevenueCatStoreService implements StoreBillingService {
       throw BillingException('The purchase could not be completed. $error');
     }
   }
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(List<String> productKeys) {
+    throw UnimplementedError();
+  }
+
+  @override
+  ManageVia get store => throw UnimplementedError();
 
   @override
   Future<bool> restore() async {
@@ -281,6 +292,7 @@ class RevenueCatStoreService implements StoreBillingService {
   }
 
   /// Finds the package [plan] names in [offerings], or null when none does.
+  /// [plan] is the catalogue product key `purchase` was given.
   ///
   /// The CURRENT offering is searched first and the rest after it: an archived
   /// offering can carry a package under the same identifier pointing at last
