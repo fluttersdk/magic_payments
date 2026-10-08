@@ -6,7 +6,7 @@
 - <a name="toc-three-rails"></a>[The Three Rails](#three-rails)
 - <a name="toc-reads"></a>[BillingService: Five Reads, Honourable Everywhere](#reads)
 - <a name="toc-web"></a>[WebBillingService: the Stripe Rail](#web)
-- <a name="toc-store"></a>[StoreBillingService: Declared, Not Implemented](#store)
+- <a name="toc-store"></a>[StoreBillingService: The Store Rail](#store)
   - [Product keys, on both rails](#product-keys)
   - [`products()`: the store's own prices](#store-prices)
   - [`PurchaseContext`](#purchase-context)
@@ -115,7 +115,7 @@ assuming the call revoked anything.
 
 ---
 
-## <a name="store"></a>StoreBillingService: Declared, Not Implemented
+## <a name="store"></a>StoreBillingService: The Store Rail
 
 ```dart
 abstract class StoreBillingService {

@@ -18,7 +18,10 @@ A conditional import resolves a whole FILE, so every arm has to declare every fa
 web and stub arms return `null` for the store rail; the io arm delegates to `createStoreRail()`, which
 asks the runtime device separately, because macOS, Windows and Linux match the same import guard as
 mobile while having no StoreKit or Play Billing. That is the one legitimate runtime-platform check in
-the package, and it lives there because the import graph genuinely cannot answer it.
+the package, and it lives there because the import graph genuinely cannot answer it. The same check
+decides which store the rail is, and `createStoreRail()` hands it to the driver as
+`RevenueCatStoreService(store: ManageVia.appStore | ManageVia.playStore)`: the driver reads `store`,
+never the platform.
 
 ## Do not spell a guard string in prose
 
