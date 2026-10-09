@@ -70,9 +70,10 @@ by guess.
 ## `BillingErrorCode` is how a caller branches
 
 A throw site that translates a rail's failure assigns a `BillingErrorCode`; a caller switches on
-`BillingException.code` and never reads `message`. The code is client-side only, never decoded from or
-encoded to the wire, so adding a member needs no producer change but does need an entry in the docs
-table (`doc/basics/rails.md`). `unknown` is the default for a site that predates the codes, and a
+`BillingException.code` and never reads `message`. The enum itself is never encoded to the wire; a
+driver may translate a producer's refusal code into a member (the web driver maps a 422
+`product_not_sellable` to `productUnavailable`, matching the producer's literal). Adding a member
+needs no producer change but does need an entry in the docs table (`doc/basics/rails.md`). `unknown` is the default for a site that predates the codes, and a
 throw site that can name its cause does. A customer dismissing a sheet is `false` from `purchase`, not
 an exception.
 
@@ -80,8 +81,11 @@ an exception.
 
 `purchase` and `restore` refuse unless the SDK's `appUserID` equals the bound billable id
 (`notIdentified`, `identityMismatch`). A purchase is refused when another rail manages the
-subscription (`managedElsewhere`) or an active product of this store cannot be named from the
-offerings (`unmappedActiveProduct`). These are refusals, not fallbacks: each one is a purchase that
+subscription (`managedElsewhere`), or when a Play change cannot be judged because the held product's
+tier or period is unknown (`unmappedActiveProduct`; the tier is looked up by package key, then by
+`PurchaseContext.tierOfStoreProduct`). RevenueCat promotional ids (`rc_promo_`) belong to no store
+and are ignored. The App Store rail does not need the held product in an offering, because StoreKit
+changes within a subscription group itself. These are refusals, not fallbacks: each one is a purchase that
 would otherwise be attributed to the wrong account, change a subscription it does not own, or compute
 a proration against a product it cannot identify.
 
