@@ -20,8 +20,9 @@ enum BillingErrorCode {
   /// The rail is bound to a different paying account than the one asking.
   identityMismatch,
 
-  /// The subscription is managed on another rail, so this one must not touch
-  /// it (a store subscription asked to change through the web, or the reverse).
+  /// The customer holds a subscription the other store sells, so a store
+  /// purchase here would charge them twice. Only the store rail raises it; it
+  /// cannot see a subscription the web rail bills through Stripe.
   managedElsewhere,
 
   /// The account holds an active product the catalogue cannot name, so no

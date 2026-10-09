@@ -32,8 +32,8 @@ never has to learn a rail's dialect to render a billing screen.
 | Rail | Contract | Platform | Status |
 |------|----------|----------|--------|
 | Stripe | `WebBillingService` | Web | Implemented |
-| App Store | `StoreBillingService` | iOS | Declared, not implemented |
-| Play Store | `StoreBillingService` | Android | Declared, not implemented |
+| App Store | `StoreBillingService` | iOS | Implemented (`RevenueCatStoreService`) |
+| Play Store | `StoreBillingService` | Android | Implemented (`RevenueCatStoreService`) |
 
 `BillingService`, the five reads, sits above all three: it answers on every platform because the
 backend is the authority on an entitlement regardless of which rail sold it.
@@ -278,14 +278,23 @@ with a typed code (see [Typed errors](#errors)):
 - **Identity.** Nothing was identified (`notIdentified`), or the SDK's `appUserID` is not the id
   `identify()` bound (`identityMismatch`). A purchase attributed to another account is one the backend
   cannot give to the right customer.
-- **Another store owns the subscription** (`managedElsewhere`). A subscription managed by Stripe, or
-  by the other store, is not changed from here.
+- **The other store sells the subscription** (`managedElsewhere`). The rail reads the store product
+  ids RevenueCat reports active, and a subscription purchase is refused when one of them belongs to
+  the other store (a Play `subscriptionId:basePlanId` on the App Store rail, an App Store id on the
+  Play rail), because a second subscription here would charge the customer twice. A one-off product
+  is still sold beside it.
 - **A Play product no change can be computed against** (`unmappedActiveProduct`). The account holds
   a Play product that neither the offerings nor `tierOfStoreProduct` rank, a grandfathered product on
   the subscription being switched, or more than one Play subscription at once.
 
 A RevenueCat promotional grant (an `rc_promo_...` id in the active subscriptions, issued from the
 RevenueCat dashboard) is no store's subscription, so it takes part in none of these checks.
+
+The rail does NOT refuse on a Stripe subscription. The web rail bills it through your backend, so
+it is not among the products RevenueCat reports active, and the store rail cannot see it. Gate the
+store's purchase affordance on `BillingEntitlement.manageVia` yourself: when it is `ManageVia.portal`,
+the customer changes that subscription on the web (see
+[The Rail and the Platform Are Different Axes](#axis)).
 
 On Android a product change is passed to Play with the proration the context implies; the customer
 sees Play's own sheet.
@@ -301,7 +310,7 @@ producer's own refusal code into one (`product_not_sellable` is `productUnavaila
 | `notConfigured` | no `public_sdk_key` in this build |
 | `notIdentified` | no paying account identified before a purchase |
 | `identityMismatch` | the SDK is bound to a different account than the one asking |
-| `managedElsewhere` | another rail manages the subscription |
+| `managedElsewhere` | the other store sells a subscription the customer holds (store rail only) |
 | `unmappedActiveProduct` | an active Play product cannot be ranked, so no replacement mode is safe |
 | `productUnavailable` | the rail has no product for the key, or the backend will not sell it (`product_not_sellable`) |
 | `pending` | the store has not settled it (parental approval, deferred payment); not a failure to retry |
@@ -355,8 +364,8 @@ contract here is a client of that decision, never a maker of it:
 
 - `WebBillingService.checkout`, `.swap` and `.cancel` all ask Stripe to change something and let the
   backend's own webhook project the result into the entitlement the backend serves back.
-- `StoreBillingService.purchase` and `.restore`, once implemented, hand the customer to the App
-  Store or Play Store and report only what the STORE said, not what the backend has recorded.
+- `StoreBillingService.purchase` and `.restore` hand the customer to the App Store or Play Store and
+  report only what the STORE said, not what the backend has recorded.
 - `BillingService.currentEntitlement` is the one call that reads the backend's own answer, and it is
   the only source of truth this package recognises.
 

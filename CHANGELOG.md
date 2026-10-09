@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.0.8
 
 ### Added
 
@@ -14,7 +14,7 @@
 - **The web rail maps the producer's `product_not_sellable` 422** from `checkout` and `swap` to `BillingErrorCode.productUnavailable`, keeping the producer's message. (`lib/src/drivers/billing_service_web.dart`)
 - **`BillingException.code`, a typed `BillingErrorCode`**: `notConfigured`, `notIdentified`, `identityMismatch`, `managedElsewhere`, `unmappedActiveProduct`, `productUnavailable`, `pending`, `receiptInUse`, `alreadyOwned`, `network`, `store`, `unknown`. Branch on the code, never on `message`.
 - **`ProductType`** (`subscription`, `consumable`, `non_consumable`, `physical`), and `BillingEntitlement.productKey` (wire `product`), `owned`, `balances` and `allowances`.
-- **The store rail refuses instead of guessing.** `purchase` and `restore` refuse unless the SDK's `appUserID` equals the id `identify()` bound (`notIdentified`, `identityMismatch`); a purchase is refused when another rail manages the subscription (`managedElsewhere`) or an active Play product cannot be ranked (`unmappedActiveProduct`). (`doc/basics/rails.md`, `doc/getting-started/configuration.md`)
+- **The store rail refuses instead of guessing.** `purchase` and `restore` refuse unless the SDK's `appUserID` equals the id `identify()` bound (`notIdentified`, `identityMismatch`); a subscription purchase is refused when the other store sells a subscription the customer holds (`managedElsewhere`; a Stripe subscription is not visible to the store rail, so the caller gates on `BillingEntitlement.manageVia`) or an active Play product cannot be ranked (`unmappedActiveProduct`). (`doc/basics/rails.md`, `doc/getting-started/configuration.md`)
 
 ### Changed
 
@@ -25,6 +25,12 @@
 - **BREAKING: a failed billing call carries a typed `code`.** Code that matched on a `BillingException` message must switch on `BillingException.code`; a throw site that names no cause answers `BillingErrorCode.unknown`.
 - **BREAKING: `BillingEntitlement.aiAnalysisTrialsRemaining` is removed.** It was one vendor's allowance on a shared model. Read it from `BillingEntitlement.allowances` or `balances`, which carry whatever the backend sends.
 - **`purchases_flutter` is `^10.15.1`.** (`pubspec.yaml`)
+- **Every sibling floor names this batch's release.** `magic` moves `^0.0.24` to `^0.0.27` and `fluttersdk_artisan` `^0.0.17` to `^0.0.19`. The old ranges already admitted the new versions, so a fresh `pub get` resolves nothing differently; what changes is that the floors name the releases this package is verified against. None of magic 0.0.25 to 0.0.27 or artisan 0.0.18 and 0.0.19 is breaking; artisan 0.0.19 widens its `xml` constraint to admit 7.x, which a consumer now inherits. (`pubspec.yaml`, `test/pubspec_floors_test.dart`)
+
+### Fixed
+
+- **The documentation describes the store rail that ships.** `doc/basics/rails.md` and the installation guide's platform table called the App Store and Play rails "Declared, not implemented"; `RevenueCatStoreService` implements both and `Payments.store` is non-null on iOS and Android. The rails guide also said the store rail refuses a subscription Stripe manages: `managedElsewhere` is raised only for an active product the OTHER store sells, and a Stripe subscription is not among the products RevenueCat reports, so the guide now says to gate the store's purchase affordance on `BillingEntitlement.manageVia`. The `BillingErrorCode.managedElsewhere` doc comment said the same wrong thing and is corrected. (`doc/basics/rails.md`, `doc/getting-started/installation.md`, `lib/src/enums/billing_error_code.dart`)
+- **The bug report form's version placeholders name the right packages.** The Magic Payments field still read `0.0.1`, and the previous release had stamped its own version into the Magic Framework field. (`.github/ISSUE_TEMPLATE/bug_report.yml`)
 
 ## 0.0.7
 

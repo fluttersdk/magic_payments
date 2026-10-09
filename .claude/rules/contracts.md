@@ -80,8 +80,8 @@ an exception.
 ## A store rail refuses before it charges
 
 `purchase` and `restore` refuse unless the SDK's `appUserID` equals the bound billable id
-(`notIdentified`, `identityMismatch`). A purchase is refused when another rail manages the
-subscription (`managedElsewhere`), or when a Play change cannot be judged because the held product's
+(`notIdentified`, `identityMismatch`). A subscription purchase is refused when the other store
+sells a subscription the customer holds (`managedElsewhere`; a Stripe subscription is invisible to it), or when a Play change cannot be judged because the held product's
 tier or period is unknown (`unmappedActiveProduct`; the tier is looked up by package key, then by
 `PurchaseContext.tierOfStoreProduct`). RevenueCat promotional ids (`rc_promo_`) belong to no store
 and are ignored. The App Store rail does not need the held product in an offering, because StoreKit
