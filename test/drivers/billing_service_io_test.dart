@@ -523,4 +523,7 @@ class _RecordingStoreRail implements StoreBillingService {
 
   @override
   ManageVia get store => ManageVia.appStore;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => null;
 }

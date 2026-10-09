@@ -6,7 +6,10 @@
 /// it. The code is the stable half of the failure.
 ///
 /// Client-side only: drivers assign it where they translate a rail's failure,
-/// and it is never decoded from or encoded to the wire.
+/// and it is never encoded to the wire. A driver may translate a producer's own
+/// machine refusal code into one, matching that code as a literal at the throw
+/// site (`product_not_sellable` is [productUnavailable]); the enum itself is
+/// never decoded.
 enum BillingErrorCode {
   /// The rail has no configuration in this build (a missing public SDK key).
   notConfigured,
@@ -25,7 +28,8 @@ enum BillingErrorCode {
   /// change can be computed against it safely.
   unmappedActiveProduct,
 
-  /// The rail has no product for the requested catalogue key.
+  /// The rail has no product for the requested catalogue key, or the backend
+  /// refuses to sell it.
   productUnavailable,
 
   /// The store accepted the purchase but has not settled it (parental approval,

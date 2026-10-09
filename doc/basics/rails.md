@@ -10,6 +10,7 @@
   - [Product keys, on both rails](#product-keys)
   - [`products()`: the store's own prices](#store-prices)
   - [`PurchaseContext`](#purchase-context)
+  - [`lastChangeTiming`: now or at renewal](#change-timing)
   - [What the store rail refuses](#store-refusals)
   - [Typed errors](#errors)
 - <a name="toc-authority"></a>[Entitlement Authority Belongs to the Backend](#authority)
@@ -107,7 +108,9 @@ and when tier and cycle travelled as two words a call that lost the second let t
 price while the screen showed the other. A single key cannot be half-sent. `checkout` and `swap`
 send it as `product`; the producer resolves the price from the key and refuses with a 422 when it
 has none mapped, which is how an adopter learns that rather than having a customer quietly charged
-the wrong figure.
+the wrong figure. That 422 carries `code: product_not_sellable`, and the driver throws it as a
+`BillingException` with `BillingErrorCode.productUnavailable` and the producer's own message; any
+other 422 stays `unknown`.
 
 A cancellation on this rail is normally end-of-period, not immediate: the entitlement it leaves
 behind still grants until `BillingEntitlement.currentPeriodEnd`. Re-read the entitlement rather than
@@ -124,6 +127,7 @@ abstract class StoreBillingService {
   Future<Map<String, StoreProductOffer>> products(List<String> productKeys);
   Future<bool> restore();
   Future<void> openStoreManagement();
+  StoreChangeTiming? get lastChangeTiming;
   ManageVia get store;
 }
 ```
@@ -196,7 +200,7 @@ sold, without asking the running platform.
 
 ### <a name="purchase-context"></a>`PurchaseContext`: telling an upgrade from a downgrade
 
-A store knows products, not tiers. When the customer already holds a subscription, pass the two facts
+A store knows products, not tiers. When the customer already holds a subscription, pass the facts
 the rail needs, distilled from the catalogue you already read:
 
 ```dart
@@ -205,13 +209,66 @@ await store.purchase(
   context: const PurchaseContext(
     tierOrder: <String>['free', 'pro', 'business'],
     tierOfProduct: <String, String>{'pro_monthly': 'pro', 'business_annual': 'business'},
+    tierOfStoreProduct: <String, String>{
+      'pro_sub:monthly': 'pro',
+      'legacy_pro_sub:monthly': 'pro',
+      'com.app.pro.monthly': 'pro',
+    },
   ),
 );
 ```
 
-On Google Play the context decides the proration of a product change: a cycle change inside one tier
-is charged at full price without proration, and a move across tiers is prorated and deferred.
-Without a context the rail cannot tell the two apart.
+`tierOfStoreProduct` maps a STORE product id to its tier, and it is the only way the rail can rank a
+grandfathered product: one the customer still holds but no offering sells any more, so it has no
+catalogue key. Build it from every plan row's `products[].store_ids` (`app_store` and `play`),
+including the products marked not sellable. A Play id is `subscriptionId:basePlanId`; the rail
+matches the full id first and then the bare subscription id, the latter only when every id under
+that subscription names one tier. It defaults to empty, which refuses a Play change from a product
+nothing names rather than guessing its tier.
+
+On Google Play the context decides the replacement mode of a product change:
+
+| Change | Replacement mode | `lastChangeTiming` |
+|--------|------------------|--------------------|
+| same subscription, longer period | `chargeFullPrice` | `immediate` |
+| same subscription, same or shorter period | `withoutProration` | `immediate` |
+| other subscription, higher tier, price per day rises | `chargeProratedPrice` | `immediate` |
+| other subscription, higher tier, price per day does not rise | `chargeFullPrice` | `immediate` |
+| other subscription, same or lower tier | `deferred` | `atRenewal` |
+
+Play accepts a prorated charge only when the price per unit of time rises, so the rail compares
+`price / period in days` of the held and the target product: pro monthly at 30 to business annual
+at 300 is 1.00 a day to 0.82 a day, and is charged in full. A grandfathered held product has no
+price or period the rail can read, so an upgrade from it is charged in full and a base-plan switch
+on its own subscription is refused (`unmappedActiveProduct`). Without a context a change between
+subscriptions is refused rather than guessed.
+
+The App Store rail passes no change at all: StoreKit moves a subscription inside its group on its
+own, so a grandfathered product never blocks the purchase there.
+
+### <a name="change-timing"></a>`lastChangeTiming`: now or at renewal
+
+`purchase` keeps its `Future<bool>`. Right after a purchase that answered `true`, read
+`store.lastChangeTiming` to tell the customer when the change lands:
+
+```dart
+if (await store.purchase('pro_monthly', context: context)) {
+  switch (store.lastChangeTiming) {
+    case StoreChangeTiming.immediate:
+      showNotice('Your plan has changed.');
+    case StoreChangeTiming.atRenewal:
+      showNotice('Your plan changes at your next renewal.');
+    case null:
+      break;
+  }
+}
+```
+
+On Play it follows the replacement mode in the table above (`deferred` is `atRenewal`, every other
+mode `immediate`). On the App Store it follows Apple's rules inside one subscription group: a higher
+level applies at once, a lower level or the same level at another duration at the next renewal.
+`null` means there is nothing to announce: a fresh purchase, a dismissed or refused one, or a change
+the rail cannot rank (no context, a held product no tier names, more than one held App Store product).
 
 ### <a name="store-refusals"></a>What the store rail refuses
 
@@ -223,8 +280,12 @@ with a typed code (see [Typed errors](#errors)):
   cannot give to the right customer.
 - **Another store owns the subscription** (`managedElsewhere`). A subscription managed by Stripe, or
   by the other store, is not changed from here.
-- **An active product this build cannot name** (`unmappedActiveProduct`). The account holds an active
-  product of this store that is not in the offerings, so no change can be computed safely.
+- **A Play product no change can be computed against** (`unmappedActiveProduct`). The account holds
+  a Play product that neither the offerings nor `tierOfStoreProduct` rank, a grandfathered product on
+  the subscription being switched, or more than one Play subscription at once.
+
+A RevenueCat promotional grant (an `rc_promo_...` id in the active subscriptions, issued from the
+RevenueCat dashboard) is no store's subscription, so it takes part in none of these checks.
 
 On Android a product change is passed to Play with the proration the context implies; the customer
 sees Play's own sheet.
@@ -232,7 +293,8 @@ sees Play's own sheet.
 ### <a name="errors"></a>Typed errors: `BillingException.code`
 
 Switch on `BillingException.code`, never on `message`, which is prose that differs per rail and per
-locale. The code is client-side only and never crosses the wire.
+locale. The code is client-side only and is never encoded to the wire; a driver translates a
+producer's own refusal code into one (`product_not_sellable` is `productUnavailable`).
 
 | `BillingErrorCode` | Meaning |
 |--------------------|---------|
@@ -240,8 +302,8 @@ locale. The code is client-side only and never crosses the wire.
 | `notIdentified` | no paying account identified before a purchase |
 | `identityMismatch` | the SDK is bound to a different account than the one asking |
 | `managedElsewhere` | another rail manages the subscription |
-| `unmappedActiveProduct` | an active product is not in the offerings |
-| `productUnavailable` | the rail has no product for the key |
+| `unmappedActiveProduct` | an active Play product cannot be ranked, so no replacement mode is safe |
+| `productUnavailable` | the rail has no product for the key, or the backend will not sell it (`product_not_sellable`) |
 | `pending` | the store has not settled it (parental approval, deferred payment); not a failure to retry |
 | `receiptInUse` | the receipt belongs to another paying account |
 | `alreadyOwned` | the customer already holds the product |

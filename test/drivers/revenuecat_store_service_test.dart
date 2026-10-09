@@ -76,11 +76,13 @@ Map<String, dynamic> _packageJson(
 
 /// An [Offering] carrying one package per (plan, product) pair given.
 ///
-/// [periods] names the billing period of a plan whose period is not monthly.
+/// [periods] names the billing period of a plan whose period is not monthly,
+/// and [prices] the price of a plan that does not cost the default 29.
 Offering _offering(
   String identifier,
   Map<String, String> packages, {
   Map<String, String> periods = const {},
+  Map<String, double> prices = const {},
 }) => _offeringOf(
   identifier,
   packages.entries
@@ -89,6 +91,7 @@ Offering _offering(
           entry.key,
           entry.value,
           period: periods[entry.key] ?? 'P1M',
+          price: prices[entry.key] ?? 29.0,
         ),
       )
       .toList(),
@@ -120,16 +123,28 @@ Offerings _catalogue() {
 
 /// The Play catalogue: two subscriptions, each with a monthly and an annual
 /// base plan, in RevenueCat's `subscriptionId:basePlanId` product id shape.
-Offerings _playCatalogue() {
+///
+/// Priced like a real catalogue, because the replacement mode of an upgrade
+/// now turns on the price per day: business costs twice pro at either period.
+Offerings _playCatalogue({
+  Map<String, String> packages = const {
+    'pro_monthly': 'pro_sub:monthly',
+    'pro_annual': 'pro_sub:annual',
+    'business_monthly': 'business_sub:monthly',
+    'business_annual': 'business_sub:annual',
+  },
+  Map<String, double> prices = const {
+    'pro_monthly': 30.0,
+    'pro_annual': 300.0,
+    'business_monthly': 60.0,
+    'business_annual': 600.0,
+  },
+}) {
   final Offering current = _offering(
     'default',
-    const {
-      'pro_monthly': 'pro_sub:monthly',
-      'pro_annual': 'pro_sub:annual',
-      'business_monthly': 'business_sub:monthly',
-      'business_annual': 'business_sub:annual',
-    },
+    packages,
     periods: const {'pro_annual': 'P1Y', 'business_annual': 'P1Y'},
+    prices: prices,
   );
 
   return Offerings(<String, Offering>{'default': current}, current: current);
@@ -142,6 +157,7 @@ Offerings _appStoreCatalogue() {
     const {
       'pro_monthly': 'com.app.pro.monthly',
       'pro_annual': 'com.app.pro.annual',
+      'business_monthly': 'com.app.business.monthly',
     },
     periods: const {'pro_annual': 'P1Y'},
   );
@@ -788,20 +804,78 @@ void main() {
     );
 
     test(
-      'an App Store product the catalogue cannot name is unmappedActiveProduct',
+      'a grandfathered App Store product does not block the new purchase',
       () async {
+        // The held product is no longer sold, so no offering names it. StoreKit
+        // moves the customer inside the group on its own, so nothing here has
+        // to compute against it; refusing would strand a paying customer on a
+        // plan they can never leave from the app.
         final _FakeStoreRail rail = _FakeStoreRail(
           offerings: _appStoreCatalogue(),
           activeProducts: const ['com.app.legacy.monthly'],
         );
 
-        await expectLater(
-          rail.purchase('pro_annual'),
-          _refusedWith(BillingErrorCode.unmappedActiveProduct),
+        expect(
+          await rail.purchase(
+            'business_monthly',
+            context: const PurchaseContext(
+              tierOrder: ['free', 'pro', 'business'],
+              tierOfProduct: {
+                'pro_monthly': 'pro',
+                'business_monthly': 'business',
+              },
+              tierOfStoreProduct: {'com.app.legacy.monthly': 'pro'},
+            ),
+          ),
+          isTrue,
         );
-        expect(rail.purchased, isEmpty);
+        expect(rail.purchasedProducts, ['com.app.business.monthly']);
+        expect(rail.productChanges, [isNull]);
+        // A higher level in the group, which Apple applies at once.
+        expect(rail.lastChangeTiming, StoreChangeTiming.immediate);
       },
     );
+
+    test('a RevenueCat promotional grant is neither store', () async {
+      // `rc_promo_` ids are granted from the RevenueCat dashboard. Read by
+      // shape, one has no `:` and would look like an App Store product to the
+      // Play rail, refusing a customer whom no store bills at all.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['rc_promo_pro_lifetime'],
+      );
+
+      expect(await rail.purchase('pro_annual', context: _tiers), isTrue);
+      expect(rail.productChanges, [isNull]);
+      expect(rail.lastChangeTiming, isNull);
+    });
+
+    test(
+      'a promotional grant beside a Play product is not a second one',
+      () async {
+        // Two active ids would be refused as ambiguous; the grant is not one of
+        // the subscriptions Play could replace.
+        final _FakeStoreRail rail = _FakeStoreRail(
+          store: ManageVia.playStore,
+          offerings: _playCatalogue(),
+          activeProducts: const ['rc_promo_pro_lifetime', 'pro_sub:monthly'],
+        );
+
+        expect(await rail.purchase('pro_annual', context: _tiers), isTrue);
+        expect(rail.productChanges.single?.oldProductIdentifier, 'pro_sub');
+      },
+    );
+
+    test('a promotional grant on the App Store rail is ignored too', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _appStoreCatalogue(),
+        activeProducts: const ['rc_promo_pro_lifetime'],
+      );
+
+      expect(await rail.purchase('pro_annual', context: _tiers), isTrue);
+      expect(rail.lastChangeTiming, isNull);
+    });
 
     test('the App Store rail never passes a product change', () async {
       // StoreKit moves a subscription inside its group on its own; a change
@@ -818,6 +892,9 @@ void main() {
   });
 
   group('a Play subscription is changed in place, never bought twice', () {
+    /// The rail the last [changeFor] bought through.
+    _FakeStoreRail? lastRail;
+
     Future<StoreProductChangeInfo?> changeFor(
       String active,
       String productKey, {
@@ -828,6 +905,7 @@ void main() {
         offerings: _playCatalogue(),
         activeProducts: [active],
       );
+      lastRail = rail;
 
       expect(await rail.purchase(productKey, context: context), isTrue);
 
@@ -967,6 +1045,291 @@ void main() {
         _refusedWith(BillingErrorCode.alreadyOwned),
       );
       expect(rail.purchased, isEmpty);
+    });
+
+    test(
+      'a higher tier cheaper per day is charged in full, not prorated',
+      () async {
+        // Pro monthly at 30 is 1.00 a day; business annual at 300 is 0.82 a day.
+        // Play accepts CHARGE_PRORATED_PRICE only when the price per unit of
+        // time rises, and rejects this purchase with it.
+        final _FakeStoreRail rail = _FakeStoreRail(
+          store: ManageVia.playStore,
+          offerings: _playCatalogue(
+            prices: const {'pro_monthly': 30.0, 'business_annual': 300.0},
+          ),
+          activeProducts: const ['pro_sub:monthly'],
+        );
+
+        expect(await rail.purchase('business_annual', context: _tiers), isTrue);
+        expect(
+          rail.productChanges.single,
+          change('pro_sub', StoreReplacementMode.chargeFullPrice),
+        );
+        expect(rail.lastChangeTiming, StoreChangeTiming.immediate);
+      },
+    );
+
+    test(
+      'a higher tier at the same price per day is charged in full',
+      () async {
+        // Equal is not a rise, and Play's rule is a strict one.
+        final _FakeStoreRail rail = _FakeStoreRail(
+          store: ManageVia.playStore,
+          offerings: _playCatalogue(
+            prices: const {'pro_annual': 300.0, 'business_annual': 300.0},
+          ),
+          activeProducts: const ['pro_sub:annual'],
+        );
+
+        expect(await rail.purchase('business_annual', context: _tiers), isTrue);
+        expect(
+          rail.productChanges.single,
+          change('pro_sub', StoreReplacementMode.chargeFullPrice),
+        );
+      },
+    );
+
+    test('a downgrade reports that it takes effect at renewal', () async {
+      expect(
+        await changeFor('business_sub:monthly', 'pro_monthly'),
+        change('business_sub', StoreReplacementMode.deferred),
+      );
+      expect(lastRail!.lastChangeTiming, StoreChangeTiming.atRenewal);
+    });
+
+    test('a shorter base plan reports that it takes effect now', () async {
+      // WITHOUT_PRORATION swaps the plan at once and bills the new price at
+      // the next recurrence, so the customer holds the new plan immediately.
+      expect(
+        await changeFor('pro_sub:annual', 'pro_monthly'),
+        change('pro_sub', StoreReplacementMode.withoutProration),
+      );
+      expect(lastRail!.lastChangeTiming, StoreChangeTiming.immediate);
+    });
+
+    test('a fresh purchase reports no change timing', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+      );
+
+      expect(rail.lastChangeTiming, isNull);
+      await rail.purchase('pro_annual', context: _tiers);
+      expect(rail.lastChangeTiming, isNull);
+    });
+
+    test('a dismissed change leaves no timing behind', () async {
+      // The timing of a change that never happened would tell the screen a
+      // plan moves at renewal when nothing moves at all.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(),
+        activeProducts: const ['business_sub:monthly'],
+      );
+      await rail.purchase('pro_monthly', context: _tiers);
+      expect(rail.lastChangeTiming, StoreChangeTiming.atRenewal);
+
+      rail.raisingOnPurchase = PlatformException(
+        code: PurchasesErrorCode.purchaseCancelledError.index.toString(),
+      );
+      expect(await rail.purchase('pro_annual', context: _tiers), isFalse);
+      expect(rail.lastChangeTiming, isNull);
+    });
+  });
+
+  group('a grandfathered Play product is changed by its store id', () {
+    /// Tier facts carrying the store id of a product no offering sells any
+    /// more, the way an app builds them from the plan rows' `store_ids`.
+    PurchaseContext grandfathered(Map<String, String> tierOfStoreProduct) =>
+        PurchaseContext(
+          tierOrder: _tiers.tierOrder,
+          tierOfProduct: _tiers.tierOfProduct,
+          tierOfStoreProduct: tierOfStoreProduct,
+        );
+
+    Matcher change(String oldProduct, StoreReplacementMode mode) =>
+        isA<StoreProductChangeInfo>()
+            .having(
+              (StoreProductChangeInfo info) => info.oldProductIdentifier,
+              'oldProductIdentifier',
+              oldProduct,
+            )
+            .having(
+              (StoreProductChangeInfo info) => info.replacementMode,
+              'replacementMode',
+              mode,
+            );
+
+    _FakeStoreRail holding(String active) => _FakeStoreRail(
+      store: ManageVia.playStore,
+      offerings: _playCatalogue(),
+      activeProducts: [active],
+    );
+
+    test('an upgrade from it is charged in full, its price unknown', () async {
+      // No package, so no price: whether the price per day rises cannot be
+      // known, and only CHARGE_FULL_PRICE is valid either way.
+      final _FakeStoreRail rail = holding('old_sub:monthly');
+
+      expect(
+        await rail.purchase(
+          'business_monthly',
+          context: grandfathered(const {'old_sub:monthly': 'pro'}),
+        ),
+        isTrue,
+      );
+      expect(
+        rail.productChanges.single,
+        change('old_sub', StoreReplacementMode.chargeFullPrice),
+      );
+      expect(rail.lastChangeTiming, StoreChangeTiming.immediate);
+    });
+
+    test('a downgrade from it is deferred', () async {
+      final _FakeStoreRail rail = holding('old_sub:monthly');
+
+      await rail.purchase(
+        'pro_monthly',
+        context: grandfathered(const {'old_sub:monthly': 'business'}),
+      );
+
+      expect(
+        rail.productChanges.single,
+        change('old_sub', StoreReplacementMode.deferred),
+      );
+      expect(rail.lastChangeTiming, StoreChangeTiming.atRenewal);
+    });
+
+    test('its tier is found by the bare subscription id', () async {
+      // RevenueCat may report a base plan the catalogue rows never listed;
+      // the subscription is still the one the rows name.
+      final _FakeStoreRail rail = holding('old_sub:p1m-legacy');
+
+      await rail.purchase(
+        'business_monthly',
+        context: grandfathered(const {'old_sub:monthly': 'pro'}),
+      );
+
+      expect(
+        rail.productChanges.single,
+        change('old_sub', StoreReplacementMode.chargeFullPrice),
+      );
+    });
+
+    test('the full store id wins over the bare subscription id', () async {
+      final _FakeStoreRail rail = holding('old_sub:monthly');
+
+      await rail.purchase(
+        'pro_monthly',
+        context: grandfathered(const {
+          'old_sub:annual': 'free',
+          'old_sub:monthly': 'business',
+        }),
+      );
+
+      expect(
+        rail.productChanges.single,
+        change('old_sub', StoreReplacementMode.deferred),
+      );
+    });
+
+    test('a subscription id naming two tiers is refused', () async {
+      final _FakeStoreRail rail = holding('old_sub:p1m-legacy');
+
+      await expectLater(
+        rail.purchase(
+          'business_monthly',
+          context: grandfathered(const {
+            'old_sub:annual': 'free',
+            'old_sub:monthly': 'business',
+          }),
+        ),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+
+    test('a base-plan switch from it is refused, its period unknown', () async {
+      // Same subscription, so Play allows only a full charge (longer period)
+      // or no proration (shorter), and which one is a guess without the
+      // current period.
+      final _FakeStoreRail rail = holding('pro_sub:legacy');
+
+      await expectLater(
+        rail.purchase(
+          'pro_annual',
+          context: grandfathered(const {'pro_sub:legacy': 'pro'}),
+        ),
+        _refusedWith(BillingErrorCode.unmappedActiveProduct),
+      );
+      expect(rail.purchased, isEmpty);
+    });
+  });
+
+  group('the App Store rail reports when Apple applies a change', () {
+    const PurchaseContext tiers = PurchaseContext(
+      tierOrder: ['free', 'pro', 'business'],
+      tierOfProduct: {
+        'pro_monthly': 'pro',
+        'pro_annual': 'pro',
+        'business_monthly': 'business',
+      },
+    );
+
+    Future<StoreChangeTiming?> timingFor(
+      String active,
+      String productKey, {
+      PurchaseContext? context = tiers,
+    }) async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: _appStoreCatalogue(),
+        activeProducts: [active],
+      );
+
+      expect(await rail.purchase(productKey, context: context), isTrue);
+      expect(rail.productChanges, [isNull]);
+
+      return rail.lastChangeTiming;
+    }
+
+    test('a higher level in the group applies at once', () async {
+      expect(
+        await timingFor('com.app.pro.monthly', 'business_monthly'),
+        StoreChangeTiming.immediate,
+      );
+    });
+
+    test('a lower level applies at the next renewal', () async {
+      expect(
+        await timingFor('com.app.business.monthly', 'pro_monthly'),
+        StoreChangeTiming.atRenewal,
+      );
+    });
+
+    test('the same level at another duration applies at renewal', () async {
+      expect(
+        await timingFor('com.app.pro.monthly', 'pro_annual'),
+        StoreChangeTiming.atRenewal,
+      );
+    });
+
+    test('without the tier order the timing is not claimed', () async {
+      expect(
+        await timingFor(
+          'com.app.pro.monthly',
+          'business_monthly',
+          context: null,
+        ),
+        isNull,
+      );
+    });
+
+    test('a held product no tier names claims no timing', () async {
+      expect(
+        await timingFor('com.app.legacy.monthly', 'business_monthly'),
+        isNull,
+      );
     });
   });
 
@@ -1119,8 +1482,11 @@ class _FakeStoreRail extends RevenueCatStoreService {
   Object? raisingOnLogIn;
   final Object? raisingOnAttributes;
   final Object? raisingOnOfferings;
-  final Object? raisingOnPurchase;
   final Object? raisingOnRestore;
+
+  /// Raised from the purchase sheet, mutable so a test can dismiss one
+  /// purchase among several.
+  Object? raisingOnPurchase;
   final Object? raisingOnManagementUrl;
 
   /// What the restore seam reports the store handed back.

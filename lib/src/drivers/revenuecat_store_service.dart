@@ -23,6 +23,7 @@ import 'package:purchases_flutter/purchases_flutter.dart'
 import '../contracts/store_billing_service.dart';
 import '../enums/billing_error_code.dart';
 import '../enums/manage_via.dart';
+import '../enums/store_change_timing.dart';
 import '../exceptions/billing_exception.dart';
 import '../models/purchase_context.dart';
 import '../models/store_product_offer.dart';
@@ -70,11 +71,14 @@ import '../support/store_identity_sync.dart';
 ///   webhook would credit somebody else;
 /// - the customer holds a subscription another store sells
 ///   (`managedElsewhere`): a second purchase here charges them twice;
-/// - the customer holds a product of this store the catalogue cannot name
-///   (`unmappedActiveProduct`): no change can be computed against it safely.
+/// - on Play, the customer holds a product no tier or period can be read for
+///   (`unmappedActiveProduct`): no replacement mode can be computed against it
+///   safely.
 ///
-/// On Play, a customer who already holds a subscription is CHANGED in place
-/// with a replacement mode rather than sold a second one; see [purchase].
+/// A RevenueCat promotional grant (`rc_promo_...`) is no store's subscription,
+/// so it takes part in neither check. On Play, a customer who already holds a
+/// subscription is CHANGED in place with a replacement mode rather than sold a
+/// second one; see [purchase].
 ///
 /// ## What this driver does NOT decide
 ///
@@ -135,8 +139,19 @@ class RevenueCatStoreService implements StoreBillingService {
   /// An ISO 8601 billing period as the store reports it (`P1M`, `P1Y`).
   static final RegExp _isoPeriod = RegExp(r'^P(\d+)([DWMY])$');
 
+  /// The prefix RevenueCat gives the id of a promotional entitlement granted
+  /// from its dashboard, which no store bills.
+  static const String _promotionalPrefix = 'rc_promo_';
+
   /// Whether [configureSdk] has already run for this process.
   bool _configured = false;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => _lastChangeTiming;
+
+  /// What [lastChangeTiming] answers: cleared when a purchase starts, set only
+  /// once the store confirmed it.
+  StoreChangeTiming? _lastChangeTiming;
 
   // ---------------------------------------------------------------------------
   // StoreBillingService
@@ -201,22 +216,31 @@ class RevenueCatStoreService implements StoreBillingService {
   /// On Play, a customer already holding a subscription of this store is
   /// changed in place, with the old subscription id and a replacement mode:
   ///
-  /// | Change | Mode |
-  /// |---|---|
-  /// | same subscription, longer period | `chargeFullPrice` |
-  /// | same subscription, same or shorter period | `withoutProration` |
-  /// | other subscription, higher tier in [context] | `chargeProratedPrice` |
-  /// | other subscription, same or lower tier | `deferred` |
+  /// | Change | Mode | [lastChangeTiming] |
+  /// |---|---|---|
+  /// | same subscription, longer period | `chargeFullPrice` | `immediate` |
+  /// | same subscription, same or shorter period | `withoutProration` | `immediate` |
+  /// | other subscription, higher tier, price per day rises | `chargeProratedPrice` | `immediate` |
+  /// | other subscription, higher tier, otherwise | `chargeFullPrice` | `immediate` |
+  /// | other subscription, same or lower tier | `deferred` | `atRenewal` |
   ///
   /// Play allows only the first two for a base-plan switch on one subscription,
-  /// and prorates only an upgrade, which is why the tier order is needed: the
-  /// rail knows products, not tiers, and with no [context] a change between
-  /// subscriptions is refused rather than guessed. The App Store rail never
-  /// passes a change, because StoreKit moves a subscription inside its group on
-  /// its own.
+  /// and accepts a prorated charge only when the price per unit of time rises,
+  /// which is why both the tier order and the held product's price matter. A
+  /// held product no offering sells any more (grandfathered) is ranked through
+  /// [PurchaseContext.tierOfStoreProduct]; its price and period are unknown, so
+  /// an upgrade from it is charged in full and a base-plan switch from it is
+  /// refused. With no [context] a change between subscriptions is refused
+  /// rather than guessed.
+  ///
+  /// The App Store rail never passes a change, because StoreKit moves a
+  /// subscription inside its group on its own, so a held product it cannot name
+  /// does not block the purchase. It still reports Apple's timing: a higher
+  /// level now, a lower level or another duration of the same level at renewal.
   @override
   Future<bool> purchase(String productKey, {PurchaseContext? context}) async {
     await ensureConfigured();
+    _lastChangeTiming = null;
 
     try {
       // 1. The webhook credits whoever the rail is bound to, so that must be
@@ -241,19 +265,22 @@ class RevenueCatStoreService implements StoreBillingService {
       }
 
       // 3. What the customer already holds decides whether this is a refusal,
-      //    a fresh purchase or a change in place.
-      final List<Package> held = _heldPackages(
-        offerings,
+      //    a fresh purchase or a change, and when that change lands.
+      final List<String> held = _heldStoreProducts(
         await activeStoreProductIds(),
       );
-      final StoreProductChangeInfo? change = _productChange(
-        held,
-        package,
-        productKey,
-        context,
-      );
+      final StoreProductChangeInfo? change = store == ManageVia.playStore
+          ? _playChange(offerings, held, package, productKey, context)
+          : null;
+      final StoreChangeTiming? timing = store == ManageVia.playStore
+          ? _playTiming(change)
+          : _appStoreTiming(offerings, held, package, productKey, context);
 
       await purchaseStorePackage(package, productChangeInfo: change);
+
+      // 4. Only now: a dismissed or failed sheet changed nothing, and its
+      //    timing would announce a change that never happened.
+      _lastChangeTiming = timing;
 
       // The store's word, and nothing about the entitlement: the rail's webhook
       // is what tells the vendor's backend, and it may not have yet.
@@ -410,8 +437,9 @@ class RevenueCatStoreService implements StoreBillingService {
     _configured = true;
   }
 
-  /// Finds the package [plan] names in [offerings], or null when none does.
-  /// [plan] is the catalogue product key `purchase` was given.
+  /// Finds the package [productKey] names in [offerings], or null when none
+  /// does. [productKey] is the catalogue key `purchase` was given, which is the
+  /// package identifier on the rail's dashboard.
   ///
   /// The CURRENT offering is searched first and the rest after it: an archived
   /// offering can carry a package under the same identifier pointing at last
@@ -421,9 +449,9 @@ class RevenueCatStoreService implements StoreBillingService {
   /// is a dashboard change. A client that named a store SKU would need a
   /// re-release for the same thing.
   @visibleForTesting
-  Package? packageFor(Offerings offerings, String plan) {
+  Package? packageFor(Offerings offerings, String productKey) {
     for (final Package package in _packagesOf(offerings)) {
-      if (package.identifier == plan) return package;
+      if (package.identifier == productKey) return package;
     }
 
     return null;
@@ -505,15 +533,21 @@ class RevenueCatStoreService implements StoreBillingService {
     }
   }
 
-  /// The catalogue packages behind the store product ids the customer holds,
-  /// refusing any id this rail cannot change.
+  /// The store product ids the customer holds that a purchase here has to
+  /// account for, refusing any id another store sells.
   ///
-  /// Which store an id belongs to is read off its shape: Play subscription ids
-  /// are `subscriptionId:basePlanId`, App Store ids never carry a `:`. Every id
-  /// of another store is checked before any id of this one is mapped, so a
-  /// customer managed elsewhere hears that rather than a catalogue complaint.
-  List<Package> _heldPackages(Offerings offerings, List<String> activeIds) {
-    for (final String id in activeIds) {
+  /// A promotional grant (`rc_promo_...`) is dropped first: RevenueCat issues it
+  /// from its dashboard, no store bills it, and read by shape it would look like
+  /// an App Store product to the Play rail. Which store an id belongs to is read
+  /// off its shape: Play subscription ids are `subscriptionId:basePlanId`, App
+  /// Store ids never carry a `:`.
+  List<String> _heldStoreProducts(List<String> activeIds) {
+    final List<String> held = <String>[
+      for (final String id in activeIds)
+        if (!id.startsWith(_promotionalPrefix)) id,
+    ];
+
+    for (final String id in held) {
       if (!_soldHere(id)) {
         Log.error(
           '[RevenueCatStoreService.purchase] "$id" is managed by another store',
@@ -525,20 +559,19 @@ class RevenueCatStoreService implements StoreBillingService {
       }
     }
 
-    return <Package>[
-      for (final String id in activeIds) _packageSelling(offerings, id),
-    ];
+    return held;
   }
 
-  /// The replacement a Play purchase carries, or null for a fresh purchase or
-  /// any App Store purchase. The rules are tabled on [purchase].
-  StoreProductChangeInfo? _productChange(
-    List<Package> held,
+  /// The replacement a Play purchase carries, or null for a fresh purchase.
+  /// The rules are tabled on [purchase].
+  StoreProductChangeInfo? _playChange(
+    Offerings offerings,
+    List<String> held,
     Package target,
     String productKey,
     PurchaseContext? context,
   ) {
-    if (store != ManageVia.playStore || held.isEmpty) return null;
+    if (held.isEmpty) return null;
 
     // Play replaces ONE subscription per purchase, and with two there is no
     // answer to which one the customer means to give up.
@@ -549,8 +582,7 @@ class RevenueCatStoreService implements StoreBillingService {
       );
     }
 
-    final Package current = held.single;
-    final String currentId = current.storeProduct.identifier;
+    final String currentId = held.single;
     if (currentId == target.storeProduct.identifier) {
       throw const BillingException(
         'This subscription is already active.',
@@ -558,19 +590,45 @@ class RevenueCatStoreService implements StoreBillingService {
       );
     }
 
+    // Null for a grandfathered product: no offering sells it any more.
+    final Package? current = _packageSelling(offerings, currentId);
+
     // The bare subscription id: Play Billing ignores anything after the `:`.
     final String oldSubscription = _subscriptionOf(currentId);
     final StoreReplacementMode mode =
         oldSubscription == _subscriptionOf(target.storeProduct.identifier)
-        ? _basePlanSwitch(current, target)
-        : _tierChange(current, productKey, context);
+        ? _basePlanSwitch(currentId, current, target)
+        : _tierChange(currentId, current, target, productKey, context);
 
     return StoreProductChangeInfo(oldSubscription, replacementMode: mode);
   }
 
+  /// When [change] lands: a deferred replacement at renewal, every other one
+  /// now, and nothing for a fresh purchase.
+  StoreChangeTiming? _playTiming(StoreProductChangeInfo? change) {
+    if (change == null) return null;
+
+    return change.replacementMode == StoreReplacementMode.deferred
+        ? StoreChangeTiming.atRenewal
+        : StoreChangeTiming.immediate;
+  }
+
   /// A base-plan switch on one subscription, where Play allows only
   /// `chargeFullPrice` and `withoutProration`.
-  StoreReplacementMode _basePlanSwitch(Package current, Package target) {
+  ///
+  /// Which one turns on the current period, and a held product with no package
+  /// has none to read: picking either would be a guess about a charge.
+  StoreReplacementMode _basePlanSwitch(
+    String currentId,
+    Package? current,
+    Package target,
+  ) {
+    if (current == null) {
+      throw _unmapped(
+        '"$currentId" is in no offering, so its period is unknown',
+      );
+    }
+
     final int from = _periodDays(current);
     final int to = _periodDays(target);
 
@@ -579,9 +637,16 @@ class RevenueCatStoreService implements StoreBillingService {
         : StoreReplacementMode.withoutProration;
   }
 
-  /// A move between subscriptions, judged by the catalogue's tier order.
+  /// A move between subscriptions, judged by the catalogue's tier order and,
+  /// for an upgrade, by the price per day.
+  ///
+  /// Play accepts `chargeProratedPrice` only when the price per unit of time
+  /// rises, so an upgrade to a longer, cheaper-per-day period (or from a held
+  /// product whose price is unknown) is charged in full instead.
   StoreReplacementMode _tierChange(
-    Package current,
+    String currentId,
+    Package? current,
+    Package target,
     String productKey,
     PurchaseContext? context,
   ) {
@@ -589,31 +654,91 @@ class RevenueCatStoreService implements StoreBillingService {
       throw _unmapped('no tier order to judge a change between subscriptions');
     }
 
-    final int from = context.tierOrder.indexOf(
-      context.tierOfProduct[current.identifier] ?? '',
-    );
-    final int to = context.tierOrder.indexOf(
-      context.tierOfProduct[productKey] ?? '',
-    );
+    final int from = _rank(context, _tierOfHeld(currentId, current, context));
+    final int to = _rank(context, context.tierOfProduct[productKey]);
     if (from < 0 || to < 0) {
-      throw _unmapped(
-        'no tier ranks "${current.identifier}" against "$productKey"',
-      );
+      throw _unmapped('no tier ranks "$currentId" against "$productKey"');
     }
 
-    return to > from
+    if (to <= from) return StoreReplacementMode.deferred;
+    if (current == null) return StoreReplacementMode.chargeFullPrice;
+
+    return _pricePerDay(target) > _pricePerDay(current)
         ? StoreReplacementMode.chargeProratedPrice
-        : StoreReplacementMode.deferred;
+        : StoreReplacementMode.chargeFullPrice;
   }
 
+  /// When Apple applies a move from the held product to [target], or null when
+  /// nothing is being changed or the move cannot be ranked.
+  ///
+  /// Inside one subscription group a higher level applies at once, and a lower
+  /// level or the same level at another duration at the next renewal. More than
+  /// one held product means more than one group, where a purchase is not a
+  /// change of the one the customer meant, so no timing is claimed.
+  StoreChangeTiming? _appStoreTiming(
+    Offerings offerings,
+    List<String> held,
+    Package target,
+    String productKey,
+    PurchaseContext? context,
+  ) {
+    if (context == null || held.length != 1) return null;
+
+    final String currentId = held.single;
+    if (currentId == target.storeProduct.identifier) return null;
+
+    final Package? current = _packageSelling(offerings, currentId);
+    final int from = _rank(context, _tierOfHeld(currentId, current, context));
+    final int to = _rank(context, context.tierOfProduct[productKey]);
+    if (from < 0 || to < 0) return null;
+
+    return to > from
+        ? StoreChangeTiming.immediate
+        : StoreChangeTiming.atRenewal;
+  }
+
+  /// The tier of the held store product [storeProductId], or null when nothing
+  /// names it.
+  ///
+  /// Its package's catalogue key first. A product no offering sells any more
+  /// has none, so [PurchaseContext.tierOfStoreProduct] answers: the full id,
+  /// then the bare subscription id of a Play product, the latter only when
+  /// every id under that subscription names one tier.
+  String? _tierOfHeld(
+    String storeProductId,
+    Package? current,
+    PurchaseContext context,
+  ) {
+    final String? byKey = current == null
+        ? null
+        : context.tierOfProduct[current.identifier];
+    if (byKey != null) return byKey;
+
+    final Map<String, String> byStoreId = context.tierOfStoreProduct;
+    final String? exact = byStoreId[storeProductId];
+    if (exact != null) return exact;
+
+    final String subscription = _subscriptionOf(storeProductId);
+    final Set<String> tiers = <String>{
+      for (final MapEntry<String, String> entry in byStoreId.entries)
+        if (_subscriptionOf(entry.key) == subscription) entry.value,
+    };
+
+    return tiers.length == 1 ? tiers.single : null;
+  }
+
+  /// The position of [tier] in the context's tier order, -1 when absent.
+  int _rank(PurchaseContext context, String? tier) =>
+      tier == null ? -1 : context.tierOrder.indexOf(tier);
+
   /// The package selling the store product [storeProductId], current offering
-  /// first, refusing when the catalogue has none.
-  Package _packageSelling(Offerings offerings, String storeProductId) {
+  /// first, or null when no offering carries it (a grandfathered product).
+  Package? _packageSelling(Offerings offerings, String storeProductId) {
     for (final Package package in _packagesOf(offerings)) {
       if (package.storeProduct.identifier == storeProductId) return package;
     }
 
-    throw _unmapped('"$storeProductId" is not in any offering');
+    return null;
   }
 
   /// Every package in [offerings], the current offering's first.
@@ -659,6 +784,12 @@ class RevenueCatStoreService implements StoreBillingService {
           _ => 365,
         };
   }
+
+  /// What [package] costs per day of its billing period, in the store's
+  /// currency. Two packages of one storefront share a currency, which is all
+  /// the comparison in [_tierChange] needs.
+  double _pricePerDay(Package package) =>
+      package.storeProduct.price / _periodDays(package);
 
   /// The refusal for an active product no change can be computed against.
   BillingException _unmapped(String reason) {

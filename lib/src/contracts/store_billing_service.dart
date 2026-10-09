@@ -1,4 +1,5 @@
 import '../enums/manage_via.dart';
+import '../enums/store_change_timing.dart';
 import '../models/purchase_context.dart';
 import '../models/store_product_offer.dart';
 
@@ -6,11 +7,12 @@ import '../models/store_product_offer.dart';
 /// own in-app purchase system takes the money: StoreKit on iOS, Google Play
 /// Billing on Android.
 ///
-/// FIVE methods and one getter. Four of the methods hand the customer to a
+/// FIVE methods and two getters. Four of the methods hand the customer to a
 /// surface this package does not own, and [products] reads the store's own
-/// prices, which only the store can answer. They are separate from `BillingService`'s reads because
-/// a rail is not available everywhere: this contract is resolved only in a build
-/// that can serve it, and resolves to `null` elsewhere. There is deliberately no
+/// prices, which only the store can answer. They are separate from
+/// `BillingService`'s reads because a rail is not available everywhere: this
+/// contract is resolved only in a build that can serve it, and resolves to
+/// `null` elsewhere. There is deliberately no
 /// `isAvailable` here, because the contract's own absence IS the availability
 /// answer, and a second way to ask the same question is a second answer that can
 /// disagree with the first.
@@ -77,6 +79,19 @@ abstract class StoreBillingService {
   /// rail's word and not the vendor's: see the class doc on what it does not
   /// promise.
   Future<bool> purchase(String productKey, {PurchaseContext? context});
+
+  /// When the last [purchase] that changed a held subscription takes effect,
+  /// or `null` when the last purchase changed nothing.
+  ///
+  /// Read right after a [purchase] that answered `true`, so a screen can say
+  /// "your plan changes now" or "at your next renewal". `null` covers a fresh
+  /// purchase, a dismissed or refused one, and a change whose timing the rail
+  /// cannot name (no [PurchaseContext], or a held product no tier ranks);
+  /// a caller treats it as "nothing to announce", never as either answer.
+  ///
+  /// A getter beside [purchase] rather than a richer return: `purchase` keeps
+  /// its `Future<bool>`, so a caller that never asks is untouched.
+  StoreChangeTiming? get lastChangeTiming;
 
   /// Reads the store's own localized price for each of [productKeys], keyed by
   /// catalogue key.

@@ -42,6 +42,9 @@ class _RecordingStoreRail implements StoreBillingService {
 
   @override
   ManageVia get store => ManageVia.appStore;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => null;
 }
 
 /// A store rail whose identify for an id finishes only when the test releases
@@ -84,6 +87,9 @@ class _GatedStoreRail implements StoreBillingService {
 
   @override
   ManageVia get store => ManageVia.appStore;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => null;
 }
 
 /// A store rail whose identify fails with something other than a

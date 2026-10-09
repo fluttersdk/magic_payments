@@ -453,6 +453,82 @@ void main() {
     );
   });
 
+  group('BillingServiceWeb names a product the backend will not sell', () {
+    /// The producer's 422, copied from `refuseUnsellableProduct()`: the
+    /// localised sentence, the machine `code` beside it, and the `errors` bag
+    /// a form reads.
+    const Map<String, dynamic> unsellable = {
+      'message': 'The product business_monthly cannot be purchased.',
+      'code': 'product_not_sellable',
+      'errors': {
+        'product': ['The product business_monthly cannot be purchased.'],
+      },
+    };
+
+    Matcher productUnavailable() => throwsA(
+      isA<BillingException>()
+          .having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.productUnavailable,
+          )
+          .having(
+            (BillingException error) => error.message,
+            'message',
+            unsellable['message'],
+          ),
+    );
+
+    test('a checkout of it is productUnavailable', () async {
+      network = Http.fake({
+        '/billing/checkout': Http.response(unsellable, 422),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().checkout(
+          productKey: 'business_monthly',
+          successUrl: 'https://example.com/billing?checkout=success',
+          cancelUrl: 'https://example.com/billing?checkout=cancel',
+        ),
+        productUnavailable(),
+      );
+      expect(launcher.launched, isEmpty);
+    });
+
+    test('a swap to it is productUnavailable', () async {
+      network = Http.fake({'/billing/swap': Http.response(unsellable, 422)});
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: 'business_monthly'),
+        productUnavailable(),
+      );
+    });
+
+    test('another 422 keeps no code it was not given', () async {
+      // The code is read, never inferred from the status: a 422 for a
+      // missing field is not a product the backend refuses to sell.
+      network = Http.fake({
+        '/billing/swap': Http.response({
+          'message': 'The product field is required.',
+          'errors': {
+            'product': ['The product field is required.'],
+          },
+        }, 422),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: ''),
+        throwsA(
+          isA<BillingException>().having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.unknown,
+          ),
+        ),
+      );
+    });
+  });
+
   group('BillingServiceWeb swap and cancel', () {
     test(
       'swap posts the catalogue product key, never a rail price id',

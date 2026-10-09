@@ -284,4 +284,8 @@ class _FakeStoreRail implements StoreBillingService {
 
   @override
   ManageVia get store => throw UnsupportedError('identity fake');
+
+  @override
+  StoreChangeTiming? get lastChangeTiming =>
+      throw UnsupportedError('identity fake');
 }

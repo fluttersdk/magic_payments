@@ -43,6 +43,7 @@ export 'src/enums/product_type.dart';
 export 'src/enums/billing_provider.dart';
 export 'src/enums/plan_status.dart';
 export 'src/enums/manage_via.dart';
+export 'src/enums/store_change_timing.dart';
 export 'src/enums/invoice_status.dart';
 
 // Drivers: the factory ONLY, and one line of it is load-bearing.

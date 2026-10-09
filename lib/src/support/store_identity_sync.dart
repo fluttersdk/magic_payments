@@ -132,6 +132,11 @@ class StoreIdentitySync {
   /// next sync and leave purchases attributed to whoever the direct call bound.
   /// So a rail calls this with `null` before its own login and with the id
   /// after the login succeeded.
+  ///
+  /// `@internal`: the rail driver in this package is its only caller. An app
+  /// that recorded a binding by hand would make the repeat guard describe a
+  /// rail it never asked, and skip the identify that fixes it.
+  @internal
   static void recordBinding(String? appUserId) {
     _identified = appUserId;
   }

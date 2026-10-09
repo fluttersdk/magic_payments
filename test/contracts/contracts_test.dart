@@ -116,6 +116,16 @@ void main() {
       );
     });
 
+    test('the store rail reports a change timing as a getter', () {
+      // A getter beside `purchase` rather than a richer return type: `purchase`
+      // keeps its `Future<bool>`, and a caller that never asks the timing is
+      // untouched by it.
+      expect(
+        _strippedSource(File(_contracts['StoreBillingService']!)),
+        contains('  StoreChangeTiming? get lastChangeTiming;'),
+      );
+    });
+
     test('no member name is declared on two contracts', () {
       final List<String> all = [
         for (final String name in _contracts.keys) ..._declaredMembers(name),

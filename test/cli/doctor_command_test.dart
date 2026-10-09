@@ -498,6 +498,41 @@ void main() async {
       );
     });
 
+    test('both modes agree on whether a project is healthy', () async {
+      // One list of checks feeds both reports, so a check that fails in one
+      // mode fails in the other. Swept over every way a project breaks here.
+      final Map<String, void Function()> breakages = <String, void Function()>{
+        'healthy': () {},
+        'no main wiring': () =>
+            File(at('lib/main.dart')).writeAsStringSync('void main() {}'),
+        'no provider': () => File(
+          at('lib/config/app.dart'),
+        ).writeAsStringSync('final appConfig = {};'),
+        'blank driver': () => File(
+          at('lib/config/payments.dart'),
+        ).writeAsStringSync("final c = {'payments': {'driver': ''}};"),
+        'unresolved': () =>
+            File(at('.dart_tool/package_config.json')).deleteSync(),
+      };
+
+      final String resolved = File(
+        at('.dart_tool/package_config.json'),
+      ).readAsStringSync();
+
+      for (final MapEntry<String, void Function()> breakage
+          in breakages.entries) {
+        File(at('.dart_tool/package_config.json')).writeAsStringSync(resolved);
+        writeInstalledState();
+        breakage.value();
+
+        expect(
+          command.jsonReport()['ok'],
+          command.issues().isEmpty,
+          reason: breakage.key,
+        );
+      }
+    });
+
     test('the human report is unchanged without the flag', () async {
       writeInstalledState();
 

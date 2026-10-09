@@ -497,4 +497,18 @@ void main() {
       expect(stat.limit, isNull);
     });
   });
+
+  group('PurchaseContext', () {
+    test('a context built without store ids knows none', () {
+      // Additive: an app written before `tierOfStoreProduct` existed still
+      // compiles, and a grandfathered product it never named is refused
+      // rather than ranked by a guess.
+      const PurchaseContext context = PurchaseContext(
+        tierOrder: ['pro'],
+        tierOfProduct: {'pro_monthly': 'pro'},
+      );
+
+      expect(context.tierOfStoreProduct, isEmpty);
+    });
+  });
 }
