@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added
+
+- **`payments:doctor --json` prints one object for an agent.** `{ok, checks: [{id, status, message, fix?}]}` with `status` one of `ok`, `warn` or `error`, the ids `dependency_declared`, `dependency_resolved`, `config_published`, `config_valid`, `provider_registered`, `config_factory_wired` and `store_rail_key`, and the same exit code as the human report. A key is only ever `present`, `absent` or `blank`, never its value. `payments_doctor` stays the only MCP tool. (`lib/src/cli/commands/doctor_command.dart`, `doc/basics/cli.md`)
+- **`StoreBillingService.products(List<String>)` reads the store's own prices**, keyed by catalogue key: `StoreProductOffer` carries the localized `priceString`, `currencyCode`, `price`, an ISO `subscriptionPeriod` and the intro-price fields. A key the store has no product for is absent from the map.
+- **`StoreBillingService.store` answers `ManageVia.appStore` or `ManageVia.playStore`**, and **`PurchaseContext`** hands a purchase the catalogue's tier order so the rail can tell an upgrade from a downgrade. On Play the replacement mode is: same subscription, longer period: `chargeFullPrice`; same subscription, same or shorter period: `withoutProration`; higher tier: `chargeProratedPrice` when the price per unit of time rises, else `chargeFullPrice`; same or lower tier: `deferred`. (`lib/src/drivers/revenuecat_store_service.dart`, `doc/basics/rails.md`)
+- **`PurchaseContext.tierOfStoreProduct`** maps a store product id to its tier (default empty), built from the plan rows' `store_ids`, so a grandfathered product no offering sells any more can still be ranked. A Play id matches in full first, then by its bare subscription id. An upgrade from a grandfathered Play product is charged in full (its price is unknown); a base-plan switch from one is refused as `unmappedActiveProduct` (its period is unknown). The App Store rail no longer requires a held product to be in an offering. (`lib/src/models/purchase_context.dart`)
+- **`StoreBillingService.lastChangeTiming` and `StoreChangeTiming` (`immediate`, `atRenewal`)** tell a caller whether the last purchase that changed a held subscription takes effect now or at renewal, without changing `purchase`'s `Future<bool>`. Play derives it from the replacement mode (`deferred` is `atRenewal`); the App Store from Apple's rules (a higher level now, a lower level or another duration of the same level at renewal). `null` when nothing changed or the timing cannot be ranked. (`lib/src/contracts/store_billing_service.dart`, `lib/src/enums/store_change_timing.dart`)
+- **A one-off store product is bought beside a held subscription.** A package whose store product is not a subscription (the SDK's `productCategory`, or no billing period where it reports none) skips the cross-store refusal and the Play product change: credits or an unlock never replace or duplicate a subscription, on either store. (`lib/src/drivers/revenuecat_store_service.dart`)
+- **A RevenueCat promotional grant (`rc_promo_...`) is ignored** by the cross-store and held-product checks: no store bills it, so it no longer refuses a purchase as `managedElsewhere` or `unmappedActiveProduct`.
+- **The web rail maps the producer's `product_not_sellable` 422** from `checkout` and `swap` to `BillingErrorCode.productUnavailable`, keeping the producer's message. (`lib/src/drivers/billing_service_web.dart`)
+- **`BillingException.code`, a typed `BillingErrorCode`**: `notConfigured`, `notIdentified`, `identityMismatch`, `managedElsewhere`, `unmappedActiveProduct`, `productUnavailable`, `pending`, `receiptInUse`, `alreadyOwned`, `network`, `store`, `unknown`. Branch on the code, never on `message`.
+- **`ProductType`** (`subscription`, `consumable`, `non_consumable`, `physical`), and `BillingEntitlement.productKey` (wire `product`), `owned`, `balances` and `allowances`.
+- **The store rail refuses instead of guessing.** `purchase` and `restore` refuse unless the SDK's `appUserID` equals the id `identify()` bound (`notIdentified`, `identityMismatch`); a purchase is refused when another rail manages the subscription (`managedElsewhere`) or an active Play product cannot be ranked (`unmappedActiveProduct`). (`doc/basics/rails.md`, `doc/getting-started/configuration.md`)
+
+### Changed
+
+- **BREAKING: a purchase names a catalogue product key, not a tier and a cycle.** `StoreBillingService.purchase({required String plan})` is `purchase(String productKey, {PurchaseContext? context})`; `WebBillingService.checkout({plan, cycle, ...})` is `checkout({required String productKey, successUrl, cancelUrl})` and `swap({plan, cycle})` is `swap({required String productKey})`, which POSTs `{product: key}`. Migration: pass the key your catalogue uses for that tier and cycle (`'pro'` plus `BillingCycle.annual` becomes `'pro_annual'`); on the store rail the key must equal a RevenueCat package identifier.
+- **BREAKING: `StoreBillingService` gained `products()` and the `store` and `lastChangeTiming` getters.** A class that implements it must add all three; a subclass of `RevenueCatStoreService` inherits them.
+- **`StoreIdentitySync.recordBinding` is `@internal`.** The rail driver is its only caller; an app that recorded a binding by hand would make the sync skip the identify that fixes it.
+- **`payments:doctor` builds its human and `--json` reports from one list of checks**, so a check cannot be added to one mode and missed by the other. Both outputs are unchanged. (`lib/src/cli/commands/doctor_command.dart`)
+- **BREAKING: a failed billing call carries a typed `code`.** Code that matched on a `BillingException` message must switch on `BillingException.code`; a throw site that names no cause answers `BillingErrorCode.unknown`.
+- **BREAKING: `BillingEntitlement.aiAnalysisTrialsRemaining` is removed.** It was one vendor's allowance on a shared model. Read it from `BillingEntitlement.allowances` or `balances`, which carry whatever the backend sends.
+- **`purchases_flutter` is `^10.15.1`.** (`pubspec.yaml`)
+
 ## 0.0.7
 
 ### Changed

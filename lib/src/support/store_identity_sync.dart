@@ -44,9 +44,12 @@ class StoreIdentitySync {
   /// from the same guard even after the container rebinds `auth`.
   static ValueNotifier<int>? _notifier;
 
-  /// The id last handed to the rail, set before the call so a [detach] during
-  /// it leaves nothing behind, and cleared when the call fails or the session
-  /// loses its subject.
+  /// The id the rail is known to hold: cleared before an identify, set only
+  /// after one succeeded, and cleared when the session loses its subject or a
+  /// rail reports through [recordBinding] that its binding is unknown.
+  ///
+  /// An identify that completes after a [detach] records its id again, which is
+  /// the truth: the rail does hold it.
   static String? _identified;
 
   /// The last queued sync while one is in flight, null while idle.
@@ -120,6 +123,24 @@ class StoreIdentitySync {
     return run;
   }
 
+  /// Records the App User ID the rail now holds, or `null` when its binding is
+  /// unknown, for a rail that identifies outside [syncNow].
+  ///
+  /// The repeat guard in [syncNow] is only safe while it describes the rail's
+  /// REAL binding. A direct `identify` (or a failed one) moves the rail without
+  /// passing through here, and a guard still holding the old id would skip the
+  /// next sync and leave purchases attributed to whoever the direct call bound.
+  /// So a rail calls this with `null` before its own login and with the id
+  /// after the login succeeded.
+  ///
+  /// `@internal`: the rail driver in this package is its only caller. An app
+  /// that recorded a binding by hand would make the repeat guard describe a
+  /// rail it never asked, and skip the identify that fixes it.
+  @internal
+  static void recordBinding(String? appUserId) {
+    _identified = appUserId;
+  }
+
   static Future<void> _sync() async {
     // 1. A build without a store rail has nothing to bind; that is an answer.
     final StoreBillingService? store = Payments.store;
@@ -143,9 +164,13 @@ class StoreIdentitySync {
 
     if (id == _identified) return;
 
-    _identified = id;
+    // 4. Unknown while the call runs, known only once it succeeded: the rail's
+    //    binding is undefined between the two, and a recorded id must never
+    //    claim more than the rail confirmed.
+    _identified = null;
     try {
       await store.identify(id);
+      _identified = id;
     } catch (error) {
       _identified = null;
       if (error is! BillingException) rethrow;

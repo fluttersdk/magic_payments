@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:magic_payments/magic_payments.dart';
 
-/// The `GET /billing` payload with every one of the producer's THIRTEEN keys
-/// populated, on the store rail (the only rail that carries `manage_url` and
+/// The `GET /billing` payload with every one of the producer's keys populated,
+/// on the store rail (the only rail that carries `manage_url` and
 /// `grace_period_ends_at`).
 ///
 /// The keys are copied from `SubscriptionResource::toArray()`, in its order.
@@ -22,7 +22,10 @@ const Map<String, dynamic> _storeEntitlementWire = {
   'current_period_end': '2026-09-01T12:00:00.000Z',
   'trial_ends_at': null,
   'grace_period_ends_at': '2026-09-16T12:00:00.000Z',
-  'ai_analysis_trials_remaining': 2,
+  'product': 'business_monthly',
+  'owned': ['lifetime'],
+  'balances': {'credits': 5},
+  'allowances': {'seats': 10},
 };
 
 /// The same payload on the Stripe rail, where FOUR of the eight nullable
@@ -41,7 +44,10 @@ const Map<String, dynamic> _stripeEntitlementWire = {
   'current_period_end': '2026-09-01T12:00:00.000Z',
   'trial_ends_at': '2026-08-29T12:00:00.000Z',
   'grace_period_ends_at': null,
-  'ai_analysis_trials_remaining': null,
+  'product': null,
+  'owned': [],
+  'balances': [],
+  'allowances': [],
 };
 
 /// One `data[]` entry of `GET /billing/invoices`, with all SIX keys
@@ -113,7 +119,7 @@ const Map<String, dynamic> _usageWire = {
 
 void main() {
   group('BillingEntitlement.fromMap', () {
-    test('decodes the store rail\'s fourteen fields', () {
+    test('decodes the store rail\'s seventeen fields', () {
       final BillingEntitlement entitlement = BillingEntitlement.fromMap(
         _storeEntitlementWire,
       );
@@ -134,7 +140,10 @@ void main() {
       expect(entitlement.currentPeriodEnd, DateTime.utc(2026, 9, 1, 12));
       expect(entitlement.trialEndsAt, isNull);
       expect(entitlement.gracePeriodEndsAt, DateTime.utc(2026, 9, 16, 12));
-      expect(entitlement.aiAnalysisTrialsRemaining, 2);
+      expect(entitlement.productKey, 'business_monthly');
+      expect(entitlement.owned, ['lifetime']);
+      expect(entitlement.balances, {'credits': 5});
+      expect(entitlement.allowances, {'seats': 10});
     });
 
     test('keeps the Stripe rail\'s four by-design nulls as nulls', () {
@@ -154,7 +163,7 @@ void main() {
       expect(entitlement.productId, isNull);
       expect(entitlement.manageUrl, isNull);
       expect(entitlement.gracePeriodEndsAt, isNull);
-      expect(entitlement.aiAnalysisTrialsRemaining, isNull);
+      expect(entitlement.productKey, isNull);
       expect(entitlement.trialEndsAt, DateTime.utc(2026, 8, 29, 12));
     });
 
@@ -179,7 +188,58 @@ void main() {
       expect(entitlement.subscribed, isFalse);
       expect(entitlement.provider, BillingProvider.none);
       expect(entitlement.manageVia, ManageVia.none);
-      expect(entitlement.aiAnalysisTrialsRemaining, isNull);
+    });
+
+    test('decodes the catalogue product key and the reserved holdings', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap(const {
+        'plan': 'pro',
+        'product': 'pro_annual',
+        'owned': ['lifetime'],
+        'balances': {'credits': 5},
+        'allowances': [],
+      });
+
+      expect(entitlement.productKey, 'pro_annual');
+      expect(entitlement.owned, ['lifetime']);
+      expect(entitlement.balances, {'credits': 5});
+      // PHP encodes an empty associative array as `[]`, so a list here is the
+      // producer saying "no allowances", not a malformed payload.
+      expect(entitlement.allowances, isEmpty);
+      expect(entitlement.allowances, isA<Map<String, dynamic>>());
+    });
+
+    test('reads a producer too old to send holdings as holding nothing, and '
+        'leaves the product key unreported', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap(const {
+        'plan': 'pro',
+        'plan_status': 'active',
+        'subscribed': true,
+      });
+
+      expect(entitlement.productKey, isNull);
+      expect(entitlement.owned, isEmpty);
+      expect(entitlement.balances, isEmpty);
+      expect(entitlement.allowances, isEmpty);
+    });
+
+    test('decodes an empty balances list the same way as an empty map', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap({
+        ..._stripeEntitlementWire,
+      });
+
+      expect(entitlement.balances, isA<Map<String, int>>());
+      expect(entitlement.balances, isEmpty);
+      expect(entitlement.owned, isEmpty);
+    });
+
+    test('reads the product key from `product`, never from `product_id`, so '
+        'a store SKU cannot pose as a catalogue key', () {
+      final BillingEntitlement entitlement = BillingEntitlement.fromMap(const {
+        'product_id': 'com.uptizm.pro.annual',
+      });
+
+      expect(entitlement.productKey, isNull);
+      expect(entitlement.productId, 'com.uptizm.pro.annual');
     });
 
     test('degrades a malformed or wrongly-typed instant to "not reported" '
@@ -214,7 +274,6 @@ void main() {
         subscribed: true,
         provider: BillingProvider.stripe,
         manageVia: ManageVia.portal,
-        aiAnalysisTrialsRemaining: null,
         raw: <String, dynamic>{},
       );
 
@@ -222,6 +281,10 @@ void main() {
       expect(entitlement.provider, BillingProvider.stripe);
       expect(entitlement.manageVia, ManageVia.portal);
       expect(entitlement.renews, isNull);
+      expect(entitlement.productKey, isNull);
+      expect(entitlement.owned, isEmpty);
+      expect(entitlement.balances, isEmpty);
+      expect(entitlement.allowances, isEmpty);
     });
   });
 
@@ -432,6 +495,20 @@ void main() {
       expect(stat.key, 'monitors');
       expect(stat.used, 0);
       expect(stat.limit, isNull);
+    });
+  });
+
+  group('PurchaseContext', () {
+    test('a context built without store ids knows none', () {
+      // Additive: an app written before `tierOfStoreProduct` existed still
+      // compiles, and a grandfathered product it never named is refused
+      // rather than ranked by a guess.
+      const PurchaseContext context = PurchaseContext(
+        tierOrder: ['pro'],
+        tierOfProduct: {'pro_monthly': 'pro'},
+      );
+
+      expect(context.tierOfStoreProduct, isEmpty);
     });
   });
 }

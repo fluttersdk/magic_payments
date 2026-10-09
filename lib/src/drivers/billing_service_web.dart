@@ -4,7 +4,7 @@ import 'package:magic/magic.dart';
 import '../contracts/billing_service.dart';
 import '../contracts/store_billing_service.dart';
 import '../contracts/web_billing_service.dart';
-import '../enums/billing_cycle.dart';
+import '../enums/billing_error_code.dart';
 import '../exceptions/billing_exception.dart';
 import '../models/billing_checkout_session.dart';
 import 'billing_reads_over_http.dart';
@@ -47,8 +47,7 @@ import 'billing_reads_over_http.dart';
 /// final WebBillingService? web = createWebBillingService();
 /// if (web != null) {
 ///   await web.checkout(
-///     plan: 'pro',
-///     cycle: BillingCycle.annual,
+///     productKey: 'pro_annual',
 ///     successUrl: 'https://example.com/billing?checkout=success',
 ///     cancelUrl: 'https://example.com/billing?checkout=cancel',
 ///   );
@@ -128,25 +127,21 @@ class BillingServiceWeb
 
   @override
   Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required BillingCycle cycle,
+    required String productKey,
     required String successUrl,
     required String cancelUrl,
   }) async {
     final MagicResponse response = await Http.post(
       '/billing/checkout',
       data: {
-        'plan': plan,
-        'cycle': cycle.toWire(),
+        'product': productKey,
         'success_url': successUrl,
         'cancel_url': cancelUrl,
       },
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.checkout] ${response.errorMessage}');
-      throw BillingException(
-        response.errorMessage ?? 'Failed to start checkout.',
-      );
+      throw _productRefusal(response, 'Failed to start checkout.');
     }
 
     // Flat: the producer unwraps its rail's session object into two keys of its
@@ -162,14 +157,14 @@ class BillingServiceWeb
   }
 
   @override
-  Future<void> swap({required String plan, required BillingCycle cycle}) async {
+  Future<void> swap({required String productKey}) async {
     final MagicResponse response = await Http.post(
       '/billing/swap',
-      data: {'plan': plan, 'cycle': cycle.toWire()},
+      data: {'product': productKey},
     );
     if (!response.successful) {
       Log.error('[BillingServiceWeb.swap] ${response.errorMessage}');
-      throw BillingException(response.errorMessage ?? 'Failed to change plan.');
+      throw _productRefusal(response, 'Failed to change plan.');
     }
   }
 
@@ -210,6 +205,36 @@ class BillingServiceWeb
 
     await openHostedPage(portalUrl);
     return portalUrl;
+  }
+
+  /// The producer's machine code for a product key it will not sell
+  /// (unknown, not a subscription, marked not sellable, or the free tier).
+  ///
+  /// Matched as this literal, never as a transformed enum name: it is a wire
+  /// word another repository spells (`BillingController`'s
+  /// `REFUSAL_PRODUCT_NOT_SELLABLE`).
+  static const String productNotSellable = 'product_not_sellable';
+
+  /// The [BillingException] a refused write that named a product key throws.
+  ///
+  /// The producer's own sentence travels as the message, and its `code` decides
+  /// the [BillingErrorCode]: [BillingErrorCode.productUnavailable] for
+  /// [productNotSellable] on a 422, and [BillingErrorCode.unknown] for anything
+  /// else, so a 422 for a missing field is never reported as a product the
+  /// backend refuses to sell.
+  BillingException _productRefusal(MagicResponse response, String fallback) {
+    final Object? body = response.data;
+    final bool unsellable =
+        response.statusCode == 422 &&
+        body is Map<String, dynamic> &&
+        body['code'] == productNotSellable;
+
+    return BillingException(
+      response.errorMessage ?? fallback,
+      code: unsellable
+          ? BillingErrorCode.productUnavailable
+          : BillingErrorCode.unknown,
+    );
   }
 
   // The five BillingService reads come from [BillingReadsOverHttp], shared with

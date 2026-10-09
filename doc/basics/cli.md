@@ -66,6 +66,7 @@ A health check over the plugin's installation and configuration state, in the sa
 ```bash
 dart run magic_payments doctor
 dart run magic_payments doctor --verbose
+dart run magic_payments doctor --json
 ```
 
 Five checks, each of which reads a file in your project and can come back false, then the config
@@ -93,6 +94,38 @@ Config state:
 `--verbose` adds the path and the requirement behind each check, so a false line names the file to
 open rather than leaving you to guess which of the five it meant.
 
+### <a name="doctor-json"></a>`--json`: the report for an agent
+
+`--json` prints exactly one JSON object and nothing else (no banner, no prose), and exits with the
+same code as the human report: 0 when nothing is an `error`, 1 otherwise.
+
+```json
+{
+  "ok": false,
+  "checks": [
+    {"id": "dependency_declared", "status": "ok", "message": "magic_payments is declared in pubspec.yaml"},
+    {"id": "config_factory_wired", "status": "error", "message": "lib/main.dart does not pass paymentsConfig to configFactories", "fix": "run `dart run <app>:artisan payments:install`"},
+    {"id": "store_rail_key", "status": "warn", "message": "payments.revenuecat.public_sdk_key: blank", "fix": "set payments.revenuecat.public_sdk_key in lib/config/payments.dart; ..."}
+  ]
+}
+```
+
+| `id` | What it reads |
+|------|---------------|
+| `dependency_declared` | `pubspec.yaml` lists `magic_payments` |
+| `dependency_resolved` | `.dart_tool/package_config.json` carries it |
+| `config_published` | `lib/config/payments.dart` exists |
+| `config_valid` | that file declares the `payments` root and a served `driver` |
+| `provider_registered` | `lib/config/app.dart` registers `PaymentsServiceProvider` |
+| `config_factory_wired` | `lib/main.dart` passes `paymentsConfig` to `configFactories` |
+| `store_rail_key` | the store rail's `public_sdk_key`, as `present`, `absent` or `blank` |
+
+`status` is `ok`, `warn` or `error`; `fix` appears on every check that is not `ok`. `store_rail_key`
+can only be `ok` or `warn`, for the reason in the next section, so a `warn` never turns `ok` false.
+
+A key is only ever reported as `present`, `absent` or `blank`. Its value is never read into the
+output, so the JSON is safe to paste into a ticket or hand to an agent.
+
 ### The store rail key is REPORTED, not enforced
 
 `store rail key` answers `absent`, `blank` or `declared`, and none of them fails the command.
@@ -106,7 +139,7 @@ used to pass in silence while that was true. So it reports, with the consequence
 - `absent` means no `revenuecat` block was published at all.
 - `blank` means the block is there with every platform arm empty, which is the state a project ships
   in first.
-- `declared` means at least one arm carries a value. One is enough: a project that filled in iOS and
+- `declared` (`present` in `--json`) means at least one arm carries a value. One is enough: a project that filled in iOS and
   not Android has configured the key, and which arms it needs is not this command's business.
 
 The value is read as TEXT, with comments stripped first, and never evaluated. The published stub

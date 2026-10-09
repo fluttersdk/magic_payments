@@ -1,6 +1,7 @@
 import 'dart:io' show Platform;
 
 import '../contracts/store_billing_service.dart';
+import '../enums/manage_via.dart';
 import 'revenuecat_store_service.dart';
 
 /// Resolves the STORE rail for the device this build is running on, or `null`
@@ -30,13 +31,20 @@ import 'revenuecat_store_service.dart';
 /// StoreBillingService? createStoreBillingService() => createStoreRail();
 /// ```
 ///
-/// [onStorePlatform] exists for tests, so BOTH answers are reachable from a host
-/// that is neither a phone nor a browser: a `flutter test` run is always on a
-/// desktop, so without it only the `null` branch could ever be exercised.
-StoreBillingService? createStoreRail({bool? onStorePlatform}) {
-  final bool hasStore =
-      onStorePlatform ?? (Platform.isIOS || Platform.isAndroid);
-  if (!hasStore) return null;
+/// The same device answer also names WHICH store the rail sells through, and it
+/// is handed to the driver here so the driver itself never asks the platform.
+///
+/// [isIOS] and [isAndroid] exist for tests, so every answer is reachable from a
+/// host that is neither a phone nor a browser: a `flutter test` run is always
+/// on a desktop, so without them only the `null` branch could ever be
+/// exercised.
+StoreBillingService? createStoreRail({bool? isIOS, bool? isAndroid}) {
+  if (isIOS ?? Platform.isIOS) {
+    return RevenueCatStoreService(store: ManageVia.appStore);
+  }
+  if (isAndroid ?? Platform.isAndroid) {
+    return RevenueCatStoreService(store: ManageVia.playStore);
+  }
 
-  return RevenueCatStoreService();
+  return null;
 }

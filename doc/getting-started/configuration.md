@@ -5,6 +5,7 @@
 - <a name="toc-overview"></a>[Overview](#overview)
 - <a name="toc-keys"></a>[The Keys](#keys)
 - <a name="toc-store"></a>[The Store Rail's Key, Per Platform](#store)
+- <a name="toc-product-keys"></a>[Product Keys Are Not Configured Here Either](#product-keys)
 - <a name="toc-why"></a>[Why the Rail Itself Is Not Configured](#why)
 - <a name="toc-runtime"></a>[Runtime Config Access](#runtime)
 
@@ -88,6 +89,20 @@ and throws a `BillingException` naming the missing key, so the failure points at
 of surfacing as an SDK error far from its cause. Note that `Payments.store` is still non-null on those
 platforms, because whether a device HAS a store and whether you have configured it are two different
 questions; the first is what the null check answers.
+
+---
+
+## <a name="product-keys"></a>Product Keys Are Not Configured Here Either
+
+No config key names a product. A purchase takes the vendor's catalogue key (`'pro_annual'`), and the
+rail resolves it from its own catalogue: on the store rail the key must equal a RevenueCat package
+identifier in one of your offerings, on the web rail it is a key your backend maps to a Stripe price.
+Adding or repricing a product is a change in the dashboard or the backend, never in
+`lib/config/payments.dart`. A key with no package is refused with `BillingErrorCode.productUnavailable`;
+see [Rails](../basics/rails.md#product-keys).
+
+`dart run magic_payments doctor --json` reports the one thing here an agent can check, whether
+`public_sdk_key` is `present`, `absent` or `blank`, and never its value.
 
 ---
 

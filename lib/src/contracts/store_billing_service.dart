@@ -1,11 +1,18 @@
+import '../enums/manage_via.dart';
+import '../enums/store_change_timing.dart';
+import '../models/purchase_context.dart';
+import '../models/store_product_offer.dart';
+
 /// Buying and managing a subscription on the STORE rail, where the platform's
 /// own in-app purchase system takes the money: StoreKit on iOS, Google Play
 /// Billing on Android.
 ///
-/// FOUR methods, and every one of them hands the customer to a surface this
-/// package does not own. They are separate from `BillingService`'s reads because
-/// a rail is not available everywhere: this contract is resolved only in a build
-/// that can serve it, and resolves to `null` elsewhere. There is deliberately no
+/// FIVE methods and two getters. Four of the methods hand the customer to a
+/// surface this package does not own, and [products] reads the store's own
+/// prices, which only the store can answer. They are separate from
+/// `BillingService`'s reads because a rail is not available everywhere: this
+/// contract is resolved only in a build that can serve it, and resolves to
+/// `null` elsewhere. There is deliberately no
 /// `isAvailable` here, because the contract's own absence IS the availability
 /// answer, and a second way to ask the same question is a second answer that can
 /// disagree with the first.
@@ -26,7 +33,7 @@
 /// ```dart
 /// // The store rail is absent on the web, and a checkable absence is the point.
 /// if (store != null) {
-///   final bool bought = await store.purchase(plan: 'pro');
+///   final bool bought = await store.purchase('pro_annual');
 ///   if (bought) {
 ///     // The store is done. The entitlement may not have caught up yet.
 ///     await billing.currentEntitlement();
@@ -52,21 +59,49 @@ abstract class StoreBillingService {
   /// identity, and it grants nothing on its own.
   Future<void> identify(String appUserId);
 
-  /// Puts the store's purchase sheet in front of the customer for [plan], and
-  /// answers whether the customer now holds the entitlement according to the
-  /// rail.
+  /// Puts the store's purchase sheet in front of the customer for
+  /// [productKey], and answers whether the store reported a completed
+  /// transaction.
   ///
-  /// [plan] is the vendor's own plan identifier (e.g. `'pro'`), the same word
-  /// `WebBillingService.checkout` takes and the same word a
-  /// `BillingService.getPlans()` row is keyed by, never a store product id. The
-  /// product a plan maps to belongs to the rail's catalogue, and a client that
-  /// named a store SKU would need a re-release to add or reprice one.
+  /// [productKey] is the vendor's own catalogue key (e.g. `'pro_annual'`), the
+  /// same key `WebBillingService.checkout` takes and the same key a product in a
+  /// `BillingService.getPlans()` row carries, never a store product id. The
+  /// store product a key maps to belongs to the rail's catalogue, and a client
+  /// that named a store SKU would need a re-release to add or reprice one.
+  ///
+  /// [context] carries the catalogue's tier order, so the rail can tell an
+  /// upgrade from a downgrade when the customer already holds a subscription.
+  /// The rail knows products, not tiers.
   ///
   /// `false` is the ordinary outcome of a customer who dismissed the sheet, so it
   /// is not an error and must not be reported as one; a rail that genuinely
-  /// failed throws `BillingException` instead. `true` is the rail's word and not
-  /// the vendor's: see the class doc on what it does not promise.
-  Future<bool> purchase({required String plan});
+  /// failed throws `BillingException` with a typed code instead. `true` is the
+  /// rail's word and not the vendor's: see the class doc on what it does not
+  /// promise.
+  Future<bool> purchase(String productKey, {PurchaseContext? context});
+
+  /// When the last [purchase] that changed a held subscription takes effect,
+  /// or `null` when the last purchase changed nothing.
+  ///
+  /// Read right after a [purchase] that answered `true`, so a screen can say
+  /// "your plan changes now" or "at your next renewal". `null` covers a fresh
+  /// purchase, a dismissed or refused one, and a change whose timing the rail
+  /// cannot name (no [PurchaseContext], or a held product no tier ranks);
+  /// a caller treats it as "nothing to announce", never as either answer.
+  ///
+  /// A getter beside [purchase] rather than a richer return: `purchase` keeps
+  /// its `Future<bool>`, so a caller that never asks is untouched.
+  StoreChangeTiming? get lastChangeTiming;
+
+  /// Reads the store's own localized price for each of [productKeys], keyed by
+  /// catalogue key.
+  ///
+  /// A store build renders these figures rather than the catalogue's, because
+  /// the store decides currency, tax and rounding, and the sheet will show its
+  /// own. A key the store has no product for is absent from the answer rather
+  /// than mapped to a guessed price; a caller renders that product as
+  /// unavailable.
+  Future<Map<String, StoreProductOffer>> products(List<String> productKeys);
 
   /// Asks the store for purchases this account already owns, and answers whether
   /// it handed one back.
@@ -90,4 +125,12 @@ abstract class StoreBillingService {
   /// caller re-reads the entitlement on return rather than assuming anything
   /// changed.
   Future<void> openStoreManagement();
+
+  /// Which store this rail sells through: [ManageVia.appStore] or
+  /// [ManageVia.playStore].
+  ///
+  /// The rail's own answer, so a caller comparing it with
+  /// `BillingEntitlement.manageVia` can tell a subscription this store can
+  /// change from one another rail sold, without asking the running platform.
+  ManageVia get store;
 }

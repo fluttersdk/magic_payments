@@ -57,6 +57,38 @@ repository.
   did. `BillingEntitlement` documents which of its fields are producer-guaranteed non-null and which
   are nullable by design; keep that count honest when you add a field.
 
+## A purchase names a product key, never a tier, a cycle or a store SKU
+
+`purchase`, `checkout` and `swap` take the vendor's catalogue key (`pro_annual`) and nothing else. One
+key names the tier AND the cycle, so it cannot be half-sent; the rail resolves it to a store package or
+a price itself, so a reprice is never a client release. Never add a `plan`, a `cycle` or a store product
+id to a rail method: tier order reaches a rail only through `PurchaseContext`, because a store knows
+products and not tiers. `products()` resolves through the same lookup `purchase` uses, so a key it
+prices is a key a purchase can buy, and a key with no product is absent from the answer, never priced
+by guess.
+
+## `BillingErrorCode` is how a caller branches
+
+A throw site that translates a rail's failure assigns a `BillingErrorCode`; a caller switches on
+`BillingException.code` and never reads `message`. The enum itself is never encoded to the wire; a
+driver may translate a producer's refusal code into a member (the web driver maps a 422
+`product_not_sellable` to `productUnavailable`, matching the producer's literal). Adding a member
+needs no producer change but does need an entry in the docs table (`doc/basics/rails.md`). `unknown` is the default for a site that predates the codes, and a
+throw site that can name its cause does. A customer dismissing a sheet is `false` from `purchase`, not
+an exception.
+
+## A store rail refuses before it charges
+
+`purchase` and `restore` refuse unless the SDK's `appUserID` equals the bound billable id
+(`notIdentified`, `identityMismatch`). A purchase is refused when another rail manages the
+subscription (`managedElsewhere`), or when a Play change cannot be judged because the held product's
+tier or period is unknown (`unmappedActiveProduct`; the tier is looked up by package key, then by
+`PurchaseContext.tierOfStoreProduct`). RevenueCat promotional ids (`rc_promo_`) belong to no store
+and are ignored. The App Store rail does not need the held product in an offering, because StoreKit
+changes within a subscription group itself. These are refusals, not fallbacks: each one is a purchase that
+would otherwise be attributed to the wrong account, change a subscription it does not own, or compute
+a proration against a product it cannot identify.
+
 ## `providerStatus` never reaches a decision
 
 It carries a rail's own dialect, including words the neutral vocabulary has none for. It is debug and

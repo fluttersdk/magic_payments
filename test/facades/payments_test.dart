@@ -85,8 +85,7 @@ const List<String> _logic = [
 class _FakeWebRail implements WebBillingService {
   @override
   Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required BillingCycle cycle,
+    required String productKey,
     required String successUrl,
     required String cancelUrl,
   }) => throw UnsupportedError('identity fake');
@@ -99,6 +98,6 @@ class _FakeWebRail implements WebBillingService {
       throw UnsupportedError('identity fake');
 
   @override
-  Future<void> swap({required String plan, required BillingCycle cycle}) =>
+  Future<void> swap({required String productKey}) =>
       throw UnsupportedError('identity fake');
 }

@@ -38,17 +38,22 @@ import 'configure_command.dart' show servedDriverModes;
 ///
 /// Exits 0 when every check passes, 1 otherwise.
 ///
+/// `--json` prints the same checks as one object, see [jsonReport], with the
+/// same exit code.
+///
 /// ## Usage
 ///
 /// ```bash
 /// dart run <app>:artisan payments:doctor
 /// dart run <app>:artisan payments:doctor --verbose
+/// dart run <app>:artisan payments:doctor --json
 /// ```
 class DoctorCommand extends ArtisanCommand {
   @override
   String get signature =>
-      'payments:doctor {--verbose : Show the path and the requirement behind '
-      'each check}';
+      'payments:doctor '
+      '{--verbose : Show the path and the requirement behind each check} '
+      '{--json : Print one JSON object for an agent instead of the report}';
 
   @override
   String get description =>
@@ -414,60 +419,110 @@ class DoctorCommand extends ArtisanCommand {
   // Aggregation
   // ---------------------------------------------------------------------------
 
-  /// Every unmet requirement, in the order the checks run. Empty means healthy.
-  List<String> issues() {
-    final List<String> issues = <String>[];
+  /// Every check this command runs, in the order both reports render them.
+  ///
+  /// The ONE list [issues], [report] and [jsonReport] are built from. The two
+  /// modes used to restate the same checks side by side, so a check added to
+  /// one could be missed by the other and an agent and an operator would read
+  /// different facts about the same project; with one list that cannot happen.
+  List<DoctorCheck> checks() {
+    final List<String> configProblems = configIssues();
 
-    if (!pluginDeclared()) {
-      return <String>[
-        '$_pubspecPath does not declare magic_payments under dependencies',
-      ];
-    }
-    if (!pluginResolved()) {
-      issues.add(
-        'magic_payments is declared but not resolved in $_packageConfigPath; '
-        'run `flutter pub get`',
-      );
-    }
-
-    issues.addAll(configIssues());
-
-    if (!providerRegistered()) {
-      issues.add(
-        '$_appConfigPath does not register PaymentsServiceProvider in its '
-        'providers list',
-      );
-    }
-    if (!configFactoryWired()) {
-      issues.add('$_mainPath does not pass paymentsConfig to configFactories');
-    }
-
-    return issues;
+    return <DoctorCheck>[
+      _check(
+        'dependency_declared',
+        pluginDeclared(),
+        label: 'Dependency declared',
+        details: <String>['$_pubspecPath, dependencies: magic_payments'],
+        okMessage: 'magic_payments is declared in $_pubspecPath',
+        errorMessage:
+            '$_pubspecPath does not declare magic_payments under dependencies',
+        fix:
+            'add magic_payments to the dependencies in $_pubspecPath, then run '
+            '`flutter pub get`',
+        blocking: true,
+      ),
+      _check(
+        'dependency_resolved',
+        pluginResolved(),
+        label: 'Dependency resolved',
+        details: <String>['$_packageConfigPath, written by `flutter pub get`'],
+        okMessage: 'magic_payments is resolved in $_packageConfigPath',
+        errorMessage: 'magic_payments is not resolved in $_packageConfigPath',
+        fix: 'run `flutter pub get`',
+        issues: <String>[
+          'magic_payments is declared but not resolved in $_packageConfigPath; '
+              'run `flutter pub get`',
+        ],
+      ),
+      // No unmet line of its own: an absent file is the first of
+      // [configIssues], which `config_valid` below already carries.
+      _check(
+        'config_published',
+        configExists(),
+        label: 'Config published',
+        details: <String>[_configPath],
+        okMessage: '$_configPath exists',
+        errorMessage: '$_configPath not found',
+        fix: 'run `dart run <app>:artisan payments:install`',
+        issues: const <String>[],
+      ),
+      _check(
+        'config_valid',
+        configProblems.isEmpty,
+        okMessage:
+            '$_configPath declares the payments root and a served driver',
+        errorMessage: configProblems.join('; '),
+        fix:
+            'run `dart run <app>:artisan payments:install`, or set the driver '
+            'with `dart run <app>:artisan payments:configure --driver=platform`',
+        issues: configProblems,
+      ),
+      _check(
+        'provider_registered',
+        providerRegistered(),
+        label: 'Provider registered',
+        details: <String>[
+          "$_appConfigPath, '(app) => PaymentsServiceProvider(app),'",
+        ],
+        okMessage: '$_appConfigPath registers PaymentsServiceProvider',
+        errorMessage:
+            '$_appConfigPath does not register PaymentsServiceProvider in its '
+            'providers list',
+        fix: 'run `dart run <app>:artisan payments:install`',
+      ),
+      _check(
+        'config_factory_wired',
+        configFactoryWired(),
+        label: 'Config factory wired',
+        details: <String>["$_mainPath, '() => paymentsConfig,'"],
+        okMessage: '$_mainPath passes paymentsConfig to configFactories',
+        errorMessage:
+            '$_mainPath does not pass paymentsConfig to configFactories',
+        fix: 'run `dart run <app>:artisan payments:install`',
+      ),
+      _storeKeyCheck(),
+    ];
   }
+
+  /// Every unmet requirement, in the order the checks run. Empty means healthy.
+  List<String> issues() => _unmet(checks());
 
   /// The human-readable report. Every line states something that was read off
   /// disk; nothing here is a checklist of work the command did not do.
   String report({bool verbose = false}) {
+    final List<DoctorCheck> all = checks();
     final StringBuffer out = StringBuffer()
       ..writeln('Magic Payments, doctor report')
       ..writeln('=' * 50)
       ..writeln();
 
-    _line(out, 'Dependency declared', pluginDeclared(), verbose, <String>[
-      '$_pubspecPath, dependencies: magic_payments',
-    ]);
-    _line(out, 'Dependency resolved', pluginResolved(), verbose, <String>[
-      '$_packageConfigPath, written by `flutter pub get`',
-    ]);
-    _line(out, 'Config published', configExists(), verbose, <String>[
-      _configPath,
-    ]);
-    _line(out, 'Provider registered', providerRegistered(), verbose, <String>[
-      "$_appConfigPath, '(app) => PaymentsServiceProvider(app),'",
-    ]);
-    _line(out, 'Config factory wired', configFactoryWired(), verbose, <String>[
-      "$_mainPath, '() => paymentsConfig,'",
-    ]);
+    for (final DoctorCheck check in all) {
+      final String? label = check.label;
+      if (label != null) {
+        _line(out, label, check.passed, verbose, check.details);
+      }
+    }
     out.writeln();
 
     // Config contents, echoed rather than asserted: the value below is the one
@@ -500,7 +555,7 @@ class DoctorCommand extends ArtisanCommand {
     }
     out.writeln();
 
-    final List<String> unmet = issues();
+    final List<String> unmet = _unmet(all);
     if (unmet.isEmpty) {
       out.writeln('✓ Every check passed.');
     } else {
@@ -513,8 +568,114 @@ class DoctorCommand extends ArtisanCommand {
     return out.toString();
   }
 
+  /// The machine-readable report: `{ok, checks: [{id, status, message, fix?}]}`.
+  ///
+  /// Every id is one of [checks], in the order they run, so an agent and an
+  /// operator read the same facts. `status` is `ok`, `warn` or `error`; `ok` is
+  /// true exactly when no check is an `error`. `fix` is present only on a check
+  /// that is not `ok`, and names the command or the file to change.
+  ///
+  /// A configured key is reported as `present`, `absent` or `blank` and never as
+  /// its value: the `store_rail_key` message is built from the state alone, so
+  /// there is no path from the consumer's config text into this output. The
+  /// config is read as text and the key's literal never leaves
+  /// [storeKeyState].
+  Map<String, Object> jsonReport() {
+    final List<DoctorCheck> all = checks();
+
+    return <String, Object>{
+      'ok': all.every(
+        (DoctorCheck check) => check.status != DoctorCheckStatus.error,
+      ),
+      'checks': <Map<String, Object>>[
+        for (final DoctorCheck check in all) check.toJson(),
+      ],
+    };
+  }
+
+  /// The unmet lines of [all], stopping at the first failed blocking check.
+  ///
+  /// A project that does not declare the package at all gets that one line and
+  /// nothing else: every later check would only restate the same missing
+  /// install.
+  List<String> _unmet(List<DoctorCheck> all) {
+    final List<String> unmet = <String>[];
+
+    for (final DoctorCheck check in all) {
+      if (check.passed) {
+        continue;
+      }
+      if (check.blocking) {
+        return List<String>.of(check.issues);
+      }
+      unmet.addAll(check.issues);
+    }
+
+    return unmet;
+  }
+
+  /// One pass-or-fail check: `ok` when [passed], otherwise `error` carrying
+  /// [fix] and, in the human report, [issues] (the [errorMessage] alone when
+  /// omitted).
+  DoctorCheck _check(
+    String id,
+    bool passed, {
+    String? label,
+    List<String> details = const <String>[],
+    required String okMessage,
+    required String errorMessage,
+    required String fix,
+    List<String>? issues,
+    bool blocking = false,
+  }) {
+    return DoctorCheck(
+      id: id,
+      status: passed ? DoctorCheckStatus.ok : DoctorCheckStatus.error,
+      message: passed ? okMessage : errorMessage,
+      fix: passed ? null : fix,
+      label: label,
+      details: details,
+      issues: passed ? const <String>[] : issues ?? <String>[errorMessage],
+      blocking: blocking,
+    );
+  }
+
+  /// The store rail's key as a check that can warn but never fail, for the reason
+  /// [storeKeyState] gives. [storeKeyState] answers `declared` where this
+  /// vocabulary says `present`, so an agent reads the same three words in every
+  /// report this command emits.
+  ///
+  /// No checklist line and no unmet line: the human report echoes the key under
+  /// its config state instead, with the note a web-only project can ignore.
+  DoctorCheck _storeKeyCheck() {
+    final String declared = storeKeyState();
+    final bool present = declared == 'declared';
+    final String state = present ? 'present' : declared;
+
+    return DoctorCheck(
+      id: 'store_rail_key',
+      status: present ? DoctorCheckStatus.ok : DoctorCheckStatus.warn,
+      message: 'payments.revenuecat.public_sdk_key: $state',
+      fix: present
+          ? null
+          : "set payments.revenuecat.public_sdk_key in $_configPath; iOS and "
+                'Android builds throw at purchase time without it, web and '
+                'desktop builds never read it',
+    );
+  }
+
   @override
   Future<int> handle(ArtisanContext ctx) async {
+    if (ctx.input.option('json') as bool? ?? false) {
+      final Map<String, Object> report = jsonReport();
+
+      // Nothing but the object on stdout: a banner would make the output
+      // unparseable, which is the one thing this mode is for.
+      ctx.output.writeln(jsonEncode(report));
+
+      return report['ok'] == true ? 0 : 1;
+    }
+
     ctx.output.info(ConsoleStyle.header('Magic Payments'));
 
     final bool verbose = ctx.input.option('verbose') as bool? ?? false;
@@ -556,4 +717,77 @@ class DoctorCommand extends ArtisanCommand {
 
   /// Resolves a project-relative path against [projectRoot].
   String _abs(String relative) => '$projectRoot/$relative';
+}
+
+/// How a [DoctorCheck] came out, spelled on the wire by [DoctorCheck.toJson].
+enum DoctorCheckStatus {
+  /// The requirement holds.
+  ok,
+
+  /// Worth an operator's attention, never a failure: the exit code ignores it.
+  warn,
+
+  /// An unmet requirement: the command exits 1.
+  error,
+}
+
+/// One check of `payments:doctor`, carrying everything both of its reports
+/// render: the JSON fields, the human checklist line and the unmet lines.
+///
+/// Every field is final and the constructor const. Not `@immutable`: that is
+/// `package:meta`, and the CLI tree imports nothing but `dart:` and
+/// `fluttersdk_artisan` so a process with no Flutter engine can load it.
+class DoctorCheck {
+  /// Creates a [DoctorCheck].
+  const DoctorCheck({
+    required this.id,
+    required this.status,
+    required this.message,
+    this.fix,
+    this.label,
+    this.details = const <String>[],
+    this.issues = const <String>[],
+    this.blocking = false,
+  });
+
+  /// The stable id an agent matches on (`config_factory_wired`).
+  final String id;
+
+  /// How the check came out.
+  final DoctorCheckStatus status;
+
+  /// The JSON report's sentence for [status].
+  final String message;
+
+  /// What to run or edit, present only when [status] is not `ok`.
+  final String? fix;
+
+  /// The human checklist label, or null for a check the human report shows
+  /// elsewhere (under its config state) or not as a line of its own.
+  final String? label;
+
+  /// The `--verbose` lines under [label]: the file and the requirement.
+  final List<String> details;
+
+  /// The human report's unmet lines, empty when the check passed.
+  final List<String> issues;
+
+  /// Whether a failure here makes every later unmet line noise, so the human
+  /// report stops at this one.
+  final bool blocking;
+
+  /// Whether the check passed. A warning passes: only an error is unmet.
+  bool get passed => status != DoctorCheckStatus.error;
+
+  /// The check as one entry of `jsonReport()['checks']`.
+  Map<String, Object> toJson() => <String, Object>{
+    'id': id,
+    'status': switch (status) {
+      DoctorCheckStatus.ok => 'ok',
+      DoctorCheckStatus.warn => 'warn',
+      DoctorCheckStatus.error => 'error',
+    },
+    'message': message,
+    if (fix case final String fix) 'fix': fix,
+  };
 }

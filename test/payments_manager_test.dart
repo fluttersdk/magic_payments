@@ -245,8 +245,7 @@ class _FakeBillingReads implements BillingService {
 class _FakeWebRail implements WebBillingService {
   @override
   Future<BillingCheckoutSession> checkout({
-    required String plan,
-    required BillingCycle cycle,
+    required String productKey,
     required String successUrl,
     required String cancelUrl,
   }) => throw UnsupportedError('identity fake');
@@ -259,7 +258,7 @@ class _FakeWebRail implements WebBillingService {
       throw UnsupportedError('identity fake');
 
   @override
-  Future<void> swap({required String plan, required BillingCycle cycle}) =>
+  Future<void> swap({required String productKey}) =>
       throw UnsupportedError('identity fake');
 }
 
@@ -273,9 +272,20 @@ class _FakeStoreRail implements StoreBillingService {
   Future<void> openStoreManagement() => throw UnsupportedError('identity fake');
 
   @override
-  Future<bool> purchase({required String plan}) =>
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) =>
+      throw UnsupportedError('identity fake');
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(List<String> productKeys) =>
       throw UnsupportedError('identity fake');
 
   @override
   Future<bool> restore() => throw UnsupportedError('identity fake');
+
+  @override
+  ManageVia get store => throw UnsupportedError('identity fake');
+
+  @override
+  StoreChangeTiming? get lastChangeTiming =>
+      throw UnsupportedError('identity fake');
 }

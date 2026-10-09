@@ -15,17 +15,28 @@ import 'package:purchases_flutter/purchases_flutter.dart'
         Purchases,
         PurchasesConfiguration,
         PurchasesErrorCode,
-        PurchasesErrorHelper;
+        PurchasesErrorHelper,
+        ProductCategory,
+        StoreProduct,
+        StoreProductChangeInfo,
+        StoreReplacementMode;
 
 import '../contracts/store_billing_service.dart';
+import '../enums/billing_error_code.dart';
+import '../enums/manage_via.dart';
+import '../enums/store_change_timing.dart';
 import '../exceptions/billing_exception.dart';
+import '../models/purchase_context.dart';
+import '../models/store_product_offer.dart';
+import '../support/store_identity_sync.dart';
 
 /// The STORE rail against RevenueCat: StoreKit on iOS, Play Billing on Android,
 /// both through one SDK.
 ///
 /// Resolved by `createStoreRail` and never constructed by a consumer, because
 /// which build gets it is a capability question and the factory owns that
-/// answer. It carries no platform branch of its own.
+/// answer. It carries no platform branch of its own: the factory hands it
+/// [store], and every store-specific rule below reads that.
 ///
 /// ## Configuration
 ///
@@ -51,6 +62,25 @@ import '../exceptions/billing_exception.dart';
 /// driver records `<label>:<id>` as a subscriber attribute, where a dashboard
 /// reader sees it and no integration parses it.
 ///
+/// ## What a purchase refuses before the sheet opens
+///
+/// Every refusal below is a [BillingException] whose [BillingErrorCode] names
+/// it, because each one is money moving to the wrong place if it were allowed:
+///
+/// - the rail is bound to another App User ID than the session's paying subject
+///   (`identityMismatch`), or the session has none (`notIdentified`): the
+///   webhook would credit somebody else;
+/// - the customer holds a subscription another store sells
+///   (`managedElsewhere`): a second purchase here charges them twice;
+/// - on Play, the customer holds a product no tier or period can be read for
+///   (`unmappedActiveProduct`): no replacement mode can be computed against it
+///   safely.
+///
+/// A RevenueCat promotional grant (`rc_promo_...`) is no store's subscription,
+/// so it takes part in neither check. On Play, a customer who already holds a
+/// subscription is CHANGED in place with a replacement mode rather than sold a
+/// second one; see [purchase].
+///
 /// ## What this driver does NOT decide
 ///
 /// The vendor's backend is the authority on the entitlement, and this driver's
@@ -59,7 +89,8 @@ import '../exceptions/billing_exception.dart';
 /// answers `true` because the sheet completed, `restore` answers the rail's own
 /// report about that one call, and a caller re-reads
 /// `BillingService.currentEntitlement()` afterwards knowing it may not have
-/// caught up yet.
+/// caught up yet. The active store product ids are read only to refuse or shape
+/// a purchase, never to grant anything.
 ///
 /// ## The seams, which are the only lines that reach a platform channel
 ///
@@ -74,14 +105,20 @@ import '../exceptions/billing_exception.dart';
 /// final StoreBillingService? store = Payments.store;
 /// if (store != null) {
 ///   await store.identify(team.id);
-///   if (await store.purchase(plan: 'pro')) {
+///   if (await store.purchase('pro_annual')) {
 ///     await Payments.billing.currentEntitlement();
 ///   }
 /// }
 /// ```
 class RevenueCatStoreService implements StoreBillingService {
-  /// Creates a [RevenueCatStoreService].
-  RevenueCatStoreService();
+  /// Creates a [RevenueCatStoreService] selling through [store].
+  ///
+  /// [store] is [ManageVia.appStore] or [ManageVia.playStore], decided by the
+  /// factory from the device it resolved the rail for.
+  RevenueCatStoreService({required this.store});
+
+  @override
+  final ManageVia store;
 
   /// The config key holding the rail's public SDK key for this platform.
   static const String apiKeyConfigKey = 'payments.revenuecat.public_sdk_key';
@@ -100,8 +137,22 @@ class RevenueCatStoreService implements StoreBillingService {
   /// for whoever reads the dashboard.
   static const String subjectAttribute = 'magic_subject';
 
+  /// An ISO 8601 billing period as the store reports it (`P1M`, `P1Y`).
+  static final RegExp _isoPeriod = RegExp(r'^P(\d+)([DWMY])$');
+
+  /// The prefix RevenueCat gives the id of a promotional entitlement granted
+  /// from its dashboard, which no store bills.
+  static const String _promotionalPrefix = 'rc_promo_';
+
   /// Whether [configureSdk] has already run for this process.
   bool _configured = false;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => _lastChangeTiming;
+
+  /// What [lastChangeTiming] answers: cleared when a purchase starts, set only
+  /// once the store confirmed it.
+  StoreChangeTiming? _lastChangeTiming;
 
   // ---------------------------------------------------------------------------
   // StoreBillingService
@@ -112,11 +163,18 @@ class RevenueCatStoreService implements StoreBillingService {
     await ensureConfigured();
 
     try {
+      // The rail's binding is unknown from the moment the login starts until it
+      // succeeds, so the sync's repeat guard forgets it now and learns the new
+      // one only below. A failed login then leaves the next sync free to bind
+      // the paying subject again rather than skipping it as a repeat.
+      StoreIdentitySync.recordBinding(null);
+
       // `await`, not a bare call: the awaited future is what puts a rejection
       // inside this try. Drop it and the future escapes, the catch clauses never
       // run, and a device that failed to bind an identity goes on to offer a
       // purchase that will be attributed to whoever it was bound to before.
       await logInSdk(appUserId);
+      StoreIdentitySync.recordBinding(appUserId);
 
       // The bare id above, the readable form here, and only when an operator
       // supplied the word: the driver knows the paying subject's id and not what
@@ -141,33 +199,102 @@ class RevenueCatStoreService implements StoreBillingService {
       }
     } on BillingException {
       rethrow;
+    } on PlatformException catch (error) {
+      Log.error('[RevenueCatStoreService.identify] ${error.code} $error');
+      throw BillingException(
+        'Failed to identify the paying account. $error',
+        code: billingCodeFor(error),
+      );
     } catch (error) {
       Log.error('[RevenueCatStoreService.identify] $error');
       throw BillingException('Failed to identify the paying account. $error');
     }
   }
 
+  /// Puts the store's sheet up for [productKey], after refusing every purchase
+  /// that would move money to the wrong place (see the class doc).
+  ///
+  /// On Play, a customer already holding a subscription of this store is
+  /// changed in place, with the old subscription id and a replacement mode:
+  ///
+  /// | Change | Mode | [lastChangeTiming] |
+  /// |---|---|---|
+  /// | same subscription, longer period | `chargeFullPrice` | `immediate` |
+  /// | same subscription, same or shorter period | `withoutProration` | `immediate` |
+  /// | other subscription, higher tier, price per day rises | `chargeProratedPrice` | `immediate` |
+  /// | other subscription, higher tier, otherwise | `chargeFullPrice` | `immediate` |
+  /// | other subscription, same or lower tier | `deferred` | `atRenewal` |
+  ///
+  /// Play allows only the first two for a base-plan switch on one subscription,
+  /// and accepts a prorated charge only when the price per unit of time rises,
+  /// which is why both the tier order and the held product's price matter. A
+  /// held product no offering sells any more (grandfathered) is ranked through
+  /// [PurchaseContext.tierOfStoreProduct]; its price and period are unknown, so
+  /// an upgrade from it is charged in full and a base-plan switch from it is
+  /// refused. With no [context] a change between subscriptions is refused
+  /// rather than guessed.
+  ///
+  /// A one-off product (consumable or non-consumable) skips all of this: it is
+  /// bought beside a held subscription, on either store, with no change and no
+  /// timing, since it neither replaces nor duplicates a subscription.
+  ///
+  /// The App Store rail never passes a change, because StoreKit moves a
+  /// subscription inside its group on its own, so a held product it cannot name
+  /// does not block the purchase. It still reports Apple's timing: a higher
+  /// level now, a lower level or another duration of the same level at renewal.
   @override
-  Future<bool> purchase({required String plan}) async {
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async {
     await ensureConfigured();
+    _lastChangeTiming = null;
 
     try {
+      // 1. The webhook credits whoever the rail is bound to, so that must be
+      //    the session's paying subject before anything else is asked.
+      await _requirePayingSubject('purchase');
+
+      // 2. The package the key names, which is also the one `products` priced.
       final Offerings offerings = await fetchOfferings();
-      final Package? package = packageFor(offerings, plan);
+      final Package? package = packageFor(offerings, productKey);
       if (package == null) {
         // Not a `false`. A dismissed sheet and a store with no product for this
         // plan are different events, and reporting the second as the first
         // hides a misconfigured catalogue behind a customer shrug.
         Log.error(
-          '[RevenueCatStoreService.purchase] no package identified "$plan" in '
-          '${offerings.all.length} offering(s)',
+          '[RevenueCatStoreService.purchase] no package identified '
+          '"$productKey" in ${offerings.all.length} offering(s)',
         );
         throw BillingException(
-          'No store product is configured for the "$plan" plan.',
+          'No store product is configured for "$productKey".',
+          code: BillingErrorCode.productUnavailable,
         );
       }
 
-      await purchaseStorePackage(package);
+      // 3. A one-off product (credits, an unlock) is bought beside whatever
+      //    the customer subscribes to: it changes no subscription, so neither
+      //    the cross-store refusal nor a replacement applies to it.
+      if (!_isSubscription(package.storeProduct)) {
+        await purchaseStorePackage(package);
+
+        return true;
+      }
+
+      // 4. What the customer already holds decides whether this is a refusal,
+      //    a fresh purchase or a change, and when that change lands.
+      final List<String> held = _heldStoreProducts(
+        await activeStoreProductIds(),
+      );
+      final StoreProductChangeInfo? change = store == ManageVia.playStore
+          ? _playChange(offerings, held, package, productKey, context)
+          : null;
+      final StoreChangeTiming? timing = store == ManageVia.playStore
+          ? _playTiming(change)
+          : _appStoreTiming(offerings, held, package, productKey, context);
+
+      await purchaseStorePackage(package, productChangeInfo: change);
+
+      // 5. Only now: a dismissed or failed sheet changed nothing, and its
+      //    timing would announce a change that never happened.
+      _lastChangeTiming = timing;
 
       // The store's word, and nothing about the entitlement: the rail's webhook
       // is what tells the vendor's backend, and it may not have yet.
@@ -185,10 +312,43 @@ class RevenueCatStoreService implements StoreBillingService {
         return false;
       }
       Log.error('[RevenueCatStoreService.purchase] ${error.code} $error');
-      throw BillingException('The purchase could not be completed. $error');
+      throw BillingException(
+        'The purchase could not be completed. $error',
+        code: billingCodeFor(error),
+      );
     } catch (error) {
       Log.error('[RevenueCatStoreService.purchase] $error');
       throw BillingException('The purchase could not be completed. $error');
+    }
+  }
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async {
+    await ensureConfigured();
+
+    try {
+      final Offerings offerings = await fetchOfferings();
+
+      // Resolved through the same lookup `purchase` uses, so the price on the
+      // screen is the price of the product the sheet will sell.
+      return <String, StoreProductOffer>{
+        for (final String key in productKeys)
+          if (packageFor(offerings, key) case final Package package)
+            key: _offerFor(package.storeProduct),
+      };
+    } on BillingException {
+      rethrow;
+    } on PlatformException catch (error) {
+      Log.error('[RevenueCatStoreService.products] ${error.code} $error');
+      throw BillingException(
+        'Store prices could not be read. $error',
+        code: billingCodeFor(error),
+      );
+    } catch (error) {
+      Log.error('[RevenueCatStoreService.products] $error');
+      throw BillingException('Store prices could not be read. $error');
     }
   }
 
@@ -197,11 +357,21 @@ class RevenueCatStoreService implements StoreBillingService {
     await ensureConfigured();
 
     try {
+      // A restore aliases the store receipt onto whoever the rail holds, so it
+      // moves a subscription between paying subjects exactly like a purchase.
+      await _requirePayingSubject('restore');
+
       // `await` inside the try for the same reason as everywhere else here, and
       // the bool is the seam's answer rather than this driver's opinion.
       return await restoreStorePurchases();
     } on BillingException {
       rethrow;
+    } on PlatformException catch (error) {
+      Log.error('[RevenueCatStoreService.restore] ${error.code} $error');
+      throw BillingException(
+        'Purchases could not be restored. $error',
+        code: billingCodeFor(error),
+      );
     } catch (error) {
       Log.error('[RevenueCatStoreService.restore] $error');
       throw BillingException('Purchases could not be restored. $error');
@@ -273,6 +443,7 @@ class RevenueCatStoreService implements StoreBillingService {
       throw const BillingException(
         'The store rail is not configured. Set '
         '$apiKeyConfigKey to this platform\'s public RevenueCat SDK key.',
+        code: BillingErrorCode.notConfigured,
       );
     }
 
@@ -280,7 +451,9 @@ class RevenueCatStoreService implements StoreBillingService {
     _configured = true;
   }
 
-  /// Finds the package [plan] names in [offerings], or null when none does.
+  /// Finds the package [productKey] names in [offerings], or null when none
+  /// does. [productKey] is the catalogue key `purchase` was given, which is the
+  /// package identifier on the rail's dashboard.
   ///
   /// The CURRENT offering is searched first and the rest after it: an archived
   /// offering can carry a package under the same identifier pointing at last
@@ -290,14 +463,9 @@ class RevenueCatStoreService implements StoreBillingService {
   /// is a dashboard change. A client that named a store SKU would need a
   /// re-release for the same thing.
   @visibleForTesting
-  Package? packageFor(Offerings offerings, String plan) {
-    for (final Offering offering in <Offering?>[
-      offerings.current,
-      ...offerings.all.values,
-    ].nonNulls) {
-      for (final Package package in offering.availablePackages) {
-        if (package.identifier == plan) return package;
-      }
+  Package? packageFor(Offerings offerings, String productKey) {
+    for (final Package package in _packagesOf(offerings)) {
+      if (package.identifier == productKey) return package;
     }
 
     return null;
@@ -318,6 +486,359 @@ class RevenueCatStoreService implements StoreBillingService {
         PurchasesErrorCode.purchaseCancelledError;
   }
 
+  /// The [BillingErrorCode] a caller switches on for the rail's [error].
+  ///
+  /// Behind the same numeric guard as [isCancellation], and negative codes
+  /// included, because `getErrorCode` indexes the enum with the parsed number.
+  /// A code with no case of its own is [BillingErrorCode.unknown] rather than
+  /// the nearest neighbour, which would be a claim about the failure.
+  @visibleForTesting
+  BillingErrorCode billingCodeFor(PlatformException error) {
+    final int? raw = int.tryParse(error.code);
+    if (raw == null || raw < 0) return BillingErrorCode.unknown;
+
+    return switch (PurchasesErrorHelper.getErrorCode(error)) {
+      PurchasesErrorCode.paymentPendingError => BillingErrorCode.pending,
+      PurchasesErrorCode.receiptAlreadyInUseError ||
+      PurchasesErrorCode.receiptInUseByOtherSubscriberError =>
+        BillingErrorCode.receiptInUse,
+      PurchasesErrorCode.productAlreadyPurchasedError =>
+        BillingErrorCode.alreadyOwned,
+      PurchasesErrorCode.networkError ||
+      PurchasesErrorCode.offlineConnectionError => BillingErrorCode.network,
+      PurchasesErrorCode.storeProblemError => BillingErrorCode.store,
+      PurchasesErrorCode.configurationError => BillingErrorCode.notConfigured,
+      PurchasesErrorCode.productNotAvailableForPurchaseError =>
+        BillingErrorCode.productUnavailable,
+      _ => BillingErrorCode.unknown,
+    };
+  }
+
+  /// Refuses unless the rail is bound to the session's paying subject.
+  ///
+  /// The sync runs first so a rail still on a previous or anonymous id is
+  /// re-bound when it can be; what is compared afterwards is the rail's OWN
+  /// answer, not what the sync believes it did. An anonymous id never equals a
+  /// paying subject's id, so it refuses as a mismatch.
+  Future<void> _requirePayingSubject(String method) async {
+    await StoreIdentitySync.syncNow();
+
+    final String? billable = StoreIdentitySync.billableId?.call();
+    if (billable == null || billable.isEmpty) {
+      Log.error(
+        '[RevenueCatStoreService.$method] no paying subject is identified',
+      );
+      throw const BillingException(
+        'No paying account is identified for the store.',
+        code: BillingErrorCode.notIdentified,
+      );
+    }
+
+    final String bound = await currentAppUserId();
+    if (bound != billable) {
+      Log.error(
+        '[RevenueCatStoreService.$method] the rail is bound to "$bound", '
+        'not the paying subject "$billable"',
+      );
+      throw const BillingException(
+        'The store is signed in for a different paying account.',
+        code: BillingErrorCode.identityMismatch,
+      );
+    }
+  }
+
+  /// Whether [product] is a subscription, which is the only kind a purchase
+  /// can collide with: one a customer already holds may need replacing, and
+  /// one another store bills must not be bought twice.
+  ///
+  /// The SDK's category decides. Where it reports none, a billing period does,
+  /// since an in-app product never carries one.
+  bool _isSubscription(StoreProduct product) =>
+      switch (product.productCategory) {
+        ProductCategory.subscription => true,
+        ProductCategory.nonSubscription => false,
+        null => product.subscriptionPeriod != null,
+      };
+
+  /// The store product ids the customer holds that a purchase here has to
+  /// account for, refusing any id another store sells.
+  ///
+  /// A promotional grant (`rc_promo_...`) is dropped first: RevenueCat issues it
+  /// from its dashboard, no store bills it, and read by shape it would look like
+  /// an App Store product to the Play rail. Which store an id belongs to is read
+  /// off its shape: Play subscription ids are `subscriptionId:basePlanId`, App
+  /// Store ids never carry a `:`.
+  List<String> _heldStoreProducts(List<String> activeIds) {
+    final List<String> held = <String>[
+      for (final String id in activeIds)
+        if (!id.startsWith(_promotionalPrefix)) id,
+    ];
+
+    for (final String id in held) {
+      if (!_soldHere(id)) {
+        Log.error(
+          '[RevenueCatStoreService.purchase] "$id" is managed by another store',
+        );
+        throw const BillingException(
+          'This subscription is managed by another store.',
+          code: BillingErrorCode.managedElsewhere,
+        );
+      }
+    }
+
+    return held;
+  }
+
+  /// The replacement a Play purchase carries, or null for a fresh purchase.
+  /// The rules are tabled on [purchase].
+  StoreProductChangeInfo? _playChange(
+    Offerings offerings,
+    List<String> held,
+    Package target,
+    String productKey,
+    PurchaseContext? context,
+  ) {
+    if (held.isEmpty) return null;
+
+    // Play replaces ONE subscription per purchase, and with two there is no
+    // answer to which one the customer means to give up.
+    if (held.length > 1) {
+      throw _unmapped(
+        '${held.length} active Play subscriptions, so the one to replace is '
+        'ambiguous',
+      );
+    }
+
+    final String currentId = held.single;
+    if (currentId == target.storeProduct.identifier) {
+      throw const BillingException(
+        'This subscription is already active.',
+        code: BillingErrorCode.alreadyOwned,
+      );
+    }
+
+    // Null for a grandfathered product: no offering sells it any more.
+    final Package? current = _packageSelling(offerings, currentId);
+
+    // The bare subscription id: Play Billing ignores anything after the `:`.
+    final String oldSubscription = _subscriptionOf(currentId);
+    final StoreReplacementMode mode =
+        oldSubscription == _subscriptionOf(target.storeProduct.identifier)
+        ? _basePlanSwitch(currentId, current, target)
+        : _tierChange(currentId, current, target, productKey, context);
+
+    return StoreProductChangeInfo(oldSubscription, replacementMode: mode);
+  }
+
+  /// When [change] lands: a deferred replacement at renewal, every other one
+  /// now, and nothing for a fresh purchase.
+  StoreChangeTiming? _playTiming(StoreProductChangeInfo? change) {
+    if (change == null) return null;
+
+    return change.replacementMode == StoreReplacementMode.deferred
+        ? StoreChangeTiming.atRenewal
+        : StoreChangeTiming.immediate;
+  }
+
+  /// A base-plan switch on one subscription, where Play allows only
+  /// `chargeFullPrice` and `withoutProration`.
+  ///
+  /// Which one turns on the current period, and a held product with no package
+  /// has none to read: picking either would be a guess about a charge.
+  StoreReplacementMode _basePlanSwitch(
+    String currentId,
+    Package? current,
+    Package target,
+  ) {
+    if (current == null) {
+      throw _unmapped(
+        '"$currentId" is in no offering, so its period is unknown',
+      );
+    }
+
+    final int from = _periodDays(current);
+    final int to = _periodDays(target);
+
+    return to > from
+        ? StoreReplacementMode.chargeFullPrice
+        : StoreReplacementMode.withoutProration;
+  }
+
+  /// A move between subscriptions, judged by the catalogue's tier order and,
+  /// for an upgrade, by the price per day.
+  ///
+  /// Play accepts `chargeProratedPrice` only when the price per unit of time
+  /// rises, so an upgrade to a longer, cheaper-per-day period (or from a held
+  /// product whose price is unknown) is charged in full instead.
+  StoreReplacementMode _tierChange(
+    String currentId,
+    Package? current,
+    Package target,
+    String productKey,
+    PurchaseContext? context,
+  ) {
+    if (context == null) {
+      throw _unmapped('no tier order to judge a change between subscriptions');
+    }
+
+    final int from = _rank(context, _tierOfHeld(currentId, current, context));
+    final int to = _rank(context, context.tierOfProduct[productKey]);
+    if (from < 0 || to < 0) {
+      throw _unmapped('no tier ranks "$currentId" against "$productKey"');
+    }
+
+    if (to <= from) return StoreReplacementMode.deferred;
+    if (current == null) return StoreReplacementMode.chargeFullPrice;
+
+    return _pricePerDay(target) > _pricePerDay(current)
+        ? StoreReplacementMode.chargeProratedPrice
+        : StoreReplacementMode.chargeFullPrice;
+  }
+
+  /// When Apple applies a move from the held product to [target], or null when
+  /// nothing is being changed or the move cannot be ranked.
+  ///
+  /// Inside one subscription group a higher level applies at once, and a lower
+  /// level or the same level at another duration at the next renewal. More than
+  /// one held product means more than one group, where a purchase is not a
+  /// change of the one the customer meant, so no timing is claimed.
+  StoreChangeTiming? _appStoreTiming(
+    Offerings offerings,
+    List<String> held,
+    Package target,
+    String productKey,
+    PurchaseContext? context,
+  ) {
+    if (context == null || held.length != 1) return null;
+
+    final String currentId = held.single;
+    if (currentId == target.storeProduct.identifier) return null;
+
+    final Package? current = _packageSelling(offerings, currentId);
+    final int from = _rank(context, _tierOfHeld(currentId, current, context));
+    final int to = _rank(context, context.tierOfProduct[productKey]);
+    if (from < 0 || to < 0) return null;
+
+    return to > from
+        ? StoreChangeTiming.immediate
+        : StoreChangeTiming.atRenewal;
+  }
+
+  /// The tier of the held store product [storeProductId], or null when nothing
+  /// names it.
+  ///
+  /// Its package's catalogue key first. A product no offering sells any more
+  /// has none, so [PurchaseContext.tierOfStoreProduct] answers: the full id,
+  /// then the bare subscription id of a Play product, the latter only when
+  /// every id under that subscription names one tier.
+  String? _tierOfHeld(
+    String storeProductId,
+    Package? current,
+    PurchaseContext context,
+  ) {
+    final String? byKey = current == null
+        ? null
+        : context.tierOfProduct[current.identifier];
+    if (byKey != null) return byKey;
+
+    final Map<String, String> byStoreId = context.tierOfStoreProduct;
+    final String? exact = byStoreId[storeProductId];
+    if (exact != null) return exact;
+
+    final String subscription = _subscriptionOf(storeProductId);
+    final Set<String> tiers = <String>{
+      for (final MapEntry<String, String> entry in byStoreId.entries)
+        if (_subscriptionOf(entry.key) == subscription) entry.value,
+    };
+
+    return tiers.length == 1 ? tiers.single : null;
+  }
+
+  /// The position of [tier] in the context's tier order, -1 when absent.
+  int _rank(PurchaseContext context, String? tier) =>
+      tier == null ? -1 : context.tierOrder.indexOf(tier);
+
+  /// The package selling the store product [storeProductId], current offering
+  /// first, or null when no offering carries it (a grandfathered product).
+  Package? _packageSelling(Offerings offerings, String storeProductId) {
+    for (final Package package in _packagesOf(offerings)) {
+      if (package.storeProduct.identifier == storeProductId) return package;
+    }
+
+    return null;
+  }
+
+  /// Every package in [offerings], the current offering's first.
+  Iterable<Package> _packagesOf(Offerings offerings) sync* {
+    for (final Offering offering in <Offering?>[
+      offerings.current,
+      ...offerings.all.values,
+    ].nonNulls) {
+      yield* offering.availablePackages;
+    }
+  }
+
+  /// Whether [storeProductId] is a product of [store] rather than another's.
+  bool _soldHere(String storeProductId) =>
+      storeProductId.contains(':') == (store == ManageVia.playStore);
+
+  /// The subscription id of a Play product id `subscriptionId:basePlanId`.
+  String _subscriptionOf(String storeProductId) =>
+      storeProductId.split(':').first;
+
+  /// The billing period of [package] in days, close enough to order periods.
+  ///
+  /// A product with no readable period cannot be ordered against another, and
+  /// picking a mode for it anyway would be a guess about a charge.
+  int _periodDays(Package package) {
+    final String? period = package.storeProduct.subscriptionPeriod;
+    final RegExpMatch? match = period == null
+        ? null
+        : _isoPeriod.firstMatch(period);
+    if (match == null) {
+      throw _unmapped(
+        '"${package.storeProduct.identifier}" has no readable period',
+      );
+    }
+
+    final int count = int.parse(match.group(1)!);
+
+    return count *
+        switch (match.group(2)!) {
+          'D' => 1,
+          'W' => 7,
+          'M' => 30,
+          _ => 365,
+        };
+  }
+
+  /// What [package] costs per day of its billing period, in the store's
+  /// currency. Two packages of one storefront share a currency, which is all
+  /// the comparison in [_tierChange] needs.
+  double _pricePerDay(Package package) =>
+      package.storeProduct.price / _periodDays(package);
+
+  /// The refusal for an active product no change can be computed against.
+  BillingException _unmapped(String reason) {
+    Log.error('[RevenueCatStoreService.purchase] $reason');
+
+    return const BillingException(
+      'The active subscription cannot be changed from here.',
+      code: BillingErrorCode.unmappedActiveProduct,
+    );
+  }
+
+  /// The store's own figures for [product], verbatim.
+  StoreProductOffer _offerFor(StoreProduct product) => StoreProductOffer(
+    priceString: product.priceString,
+    currencyCode: product.currencyCode,
+    price: product.price,
+    subscriptionPeriod: product.subscriptionPeriod,
+    introPrice: product.introductoryPrice?.price,
+    introPriceString: product.introductoryPrice?.priceString,
+    introPeriod: product.introductoryPrice?.period,
+  );
+
   // ---------------------------------------------------------------------------
   // The seams: one SDK call each, nothing else
   // ---------------------------------------------------------------------------
@@ -335,6 +856,12 @@ class RevenueCatStoreService implements StoreBillingService {
   @visibleForTesting
   Future<void> logInSdk(String appUserId) => Purchases.logIn(appUserId);
 
+  /// Reads the App User ID the rail is bound to right now. THE SEAM.
+  ///
+  /// An anonymous rail answers its own `$RCAnonymousID:` id.
+  @visibleForTesting
+  Future<String> currentAppUserId() => Purchases.appUserID;
+
   /// Records [values] against the identified subscriber. THE SEAM.
   @visibleForTesting
   Future<void> setSubscriberAttributes(Map<String, String> values) =>
@@ -344,14 +871,34 @@ class RevenueCatStoreService implements StoreBillingService {
   @visibleForTesting
   Future<Offerings> fetchOfferings() => Purchases.getOfferings();
 
+  /// Reads the store product ids the identified account holds active. THE
+  /// SEAM.
+  ///
+  /// The ids and nothing else off the `CustomerInfo`: they decide whether a
+  /// purchase is refused or shaped into a change, never what anybody is
+  /// entitled to. On Android, App Store ids may appear beside the Play ones.
+  @visibleForTesting
+  Future<List<String>> activeStoreProductIds() async {
+    final CustomerInfo info = await Purchases.getCustomerInfo();
+
+    return info.activeSubscriptions;
+  }
+
   /// Puts the store's purchase sheet up for [package]. THE SEAM.
+  ///
+  /// [productChangeInfo] is the Play subscription the purchase replaces, or
+  /// null for a fresh purchase.
   ///
   /// The `PurchaseResult` is discarded for the same reason [logInSdk]'s is: the
   /// sheet completing is this driver's whole answer, and the entitlement belongs
   /// to the backend the rail's webhook reaches.
   @visibleForTesting
-  Future<void> purchaseStorePackage(Package package) =>
-      Purchases.purchase(PurchaseParams.package(package));
+  Future<void> purchaseStorePackage(
+    Package package, {
+    StoreProductChangeInfo? productChangeInfo,
+  }) => Purchases.purchase(
+    PurchaseParams.package(package, productChangeInfo: productChangeInfo),
+  );
 
   /// Asks the store for what the identified account already owns. THE SEAM.
   ///
@@ -370,11 +917,10 @@ class RevenueCatStoreService implements StoreBillingService {
 
   /// Reads the URL the rail names for managing this subscription. THE SEAM.
   ///
-  /// The one call in this driver that reaches `getCustomerInfo`, and it reads
-  /// ONE string off the answer. The rail resolves the destination per store (the
-  /// App Store screen on iOS, the Play Store one on Android), which is why no
-  /// platform branch appears here; `null` means the account holds no store
-  /// subscription to manage.
+  /// It reads ONE string off the customer info. The rail resolves the
+  /// destination per store (the App Store screen on iOS, the Play Store one on
+  /// Android), which is why no platform branch appears here; `null` means the
+  /// account holds no store subscription to manage.
   @visibleForTesting
   Future<String?> fetchManagementUrl() async {
     final CustomerInfo info = await Purchases.getCustomerInfo();

@@ -106,6 +106,19 @@ void main() {
       }
     });
 
+    test('the doctor tool lets an agent ask for the JSON report', () {
+      // `payments:doctor --json` exists for agents, and an agent reaches the
+      // command through this descriptor: a flag missing here is a mode no
+      // agent can request.
+      final Map<String, dynamic> properties =
+          provider.mcpTools().single.inputSchema['properties']
+              as Map<String, dynamic>;
+      final Map<String, dynamic> json =
+          properties['json'] as Map<String, dynamic>;
+
+      expect(json['type'], 'boolean');
+    });
+
     test('every tool input schema is a JSON-Schema object', () {
       for (final tool in provider.mcpTools()) {
         expect(tool.inputSchema['type'], 'object', reason: tool.name);

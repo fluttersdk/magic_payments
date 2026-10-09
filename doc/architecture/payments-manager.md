@@ -68,8 +68,7 @@ rendering one and catching a refusal.
 final web = Payments.web;
 if (web != null) {
   await web.checkout(
-    plan: 'pro',
-    cycle: BillingCycle.annual,
+    productKey: 'pro_annual',
     successUrl: '...',
     cancelUrl: '...',
   );

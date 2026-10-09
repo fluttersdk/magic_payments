@@ -39,7 +39,10 @@ const Map<String, dynamic> _entitlementBody = {
     'current_period_end': '2026-09-01T12:00:00.000Z',
     'trial_ends_at': null,
     'grace_period_ends_at': null,
-    'ai_analysis_trials_remaining': null,
+    'product': 'pro_annual',
+    'owned': [],
+    'balances': [],
+    'allowances': [],
   },
 };
 
@@ -362,7 +365,7 @@ void main() {
 
   group('BillingServiceWeb checkout', () {
     test(
-      'checkout posts the plan and both return URLs, then opens the hosted page in an in-app web view',
+      'checkout posts the product key and both return URLs, then opens the hosted page in an in-app web view',
       () async {
         network = Http.fake({
           '/billing/checkout': Http.response(_checkoutBody),
@@ -370,38 +373,25 @@ void main() {
 
         final BillingCheckoutSession session = await const BillingServiceWeb()
             .checkout(
-              plan: 'pro',
-              cycle: BillingCycle.annual,
+              productKey: 'pro_annual',
               successUrl: 'https://example.com/billing?checkout=success',
               cancelUrl: 'https://example.com/billing?checkout=cancel',
             );
 
         network.assertSent(
           (MagicRequest request) =>
-              request.method == 'POST' &&
-              request.url == '/billing/checkout' &&
-              request.data is Map<String, dynamic> &&
-              (request.data as Map<String, dynamic>)['plan'] == 'pro' &&
-              (request.data as Map<String, dynamic>)['success_url'] ==
-                  'https://example.com/billing?checkout=success' &&
-              (request.data as Map<String, dynamic>)['cancel_url'] ==
-                  'https://example.com/billing?checkout=cancel',
+              request.method == 'POST' && request.url == '/billing/checkout',
         );
-        // The wire keys are snake_case because the producer validates them by
-        // that name; a camelCase payload is a 422 the client cannot see.
-        //
-        // `cycle` is asserted by VALUE and not merely by presence, because it
-        // decides which of the tier's prices is charged. A driver sending the
-        // wrong member, or the enum's `toString()` instead of its wire word,
-        // would satisfy a key check and bill the customer on the other price.
-        expect(
-          (network.recorded.single.$1.data as Map<String, dynamic>).keys,
-          containsAll(<String>['plan', 'cycle', 'success_url', 'cancel_url']),
-        );
-        expect(
-          (network.recorded.single.$1.data as Map<String, dynamic>)['cycle'],
-          'annual',
-        );
+        // The WHOLE body, with snake_case keys because the producer validates
+        // them by that name. Asserted whole so neither a leftover `plan` nor a
+        // leftover `cycle` can ride along: the product key alone names the
+        // price, and a second key that disagreed with it would let the backend
+        // pick which one to charge.
+        expect(network.recorded.single.$1.data as Map<String, dynamic>, {
+          'product': 'pro_annual',
+          'success_url': 'https://example.com/billing?checkout=success',
+          'cancel_url': 'https://example.com/billing?checkout=cancel',
+        });
         expect(session.checkoutUrl, _checkoutBody['checkout_url']);
         expect(session.sessionId, 'cs_test_a1b2c3');
         // In-app, not external: an external browser leaves the app, and the
@@ -424,8 +414,7 @@ void main() {
 
         await expectLater(
           const BillingServiceWeb().checkout(
-            plan: 'pro',
-            cycle: BillingCycle.annual,
+            productKey: 'pro_annual',
             successUrl: 'https://example.com/ok',
             cancelUrl: 'https://example.com/no',
           ),
@@ -453,8 +442,7 @@ void main() {
 
         await expectLater(
           const BillingServiceWeb().checkout(
-            plan: 'pro',
-            cycle: BillingCycle.annual,
+            productKey: 'pro_annual',
             successUrl: 'https://example.com/ok',
             cancelUrl: 'https://example.com/no',
           ),
@@ -465,32 +453,101 @@ void main() {
     );
   });
 
+  group('BillingServiceWeb names a product the backend will not sell', () {
+    /// The producer's 422, copied from `refuseUnsellableProduct()`: the
+    /// localised sentence, the machine `code` beside it, and the `errors` bag
+    /// a form reads.
+    const Map<String, dynamic> unsellable = {
+      'message': 'The product business_monthly cannot be purchased.',
+      'code': 'product_not_sellable',
+      'errors': {
+        'product': ['The product business_monthly cannot be purchased.'],
+      },
+    };
+
+    Matcher productUnavailable() => throwsA(
+      isA<BillingException>()
+          .having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.productUnavailable,
+          )
+          .having(
+            (BillingException error) => error.message,
+            'message',
+            unsellable['message'],
+          ),
+    );
+
+    test('a checkout of it is productUnavailable', () async {
+      network = Http.fake({
+        '/billing/checkout': Http.response(unsellable, 422),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().checkout(
+          productKey: 'business_monthly',
+          successUrl: 'https://example.com/billing?checkout=success',
+          cancelUrl: 'https://example.com/billing?checkout=cancel',
+        ),
+        productUnavailable(),
+      );
+      expect(launcher.launched, isEmpty);
+    });
+
+    test('a swap to it is productUnavailable', () async {
+      network = Http.fake({'/billing/swap': Http.response(unsellable, 422)});
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: 'business_monthly'),
+        productUnavailable(),
+      );
+    });
+
+    test('another 422 keeps no code it was not given', () async {
+      // The code is read, never inferred from the status: a 422 for a
+      // missing field is not a product the backend refuses to sell.
+      network = Http.fake({
+        '/billing/swap': Http.response({
+          'message': 'The product field is required.',
+          'errors': {
+            'product': ['The product field is required.'],
+          },
+        }, 422),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: ''),
+        throwsA(
+          isA<BillingException>().having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.unknown,
+          ),
+        ),
+      );
+    });
+  });
+
   group('BillingServiceWeb swap and cancel', () {
     test(
-      'swap posts the plan word and the cycle, never a rail price id',
+      'swap posts the catalogue product key, never a rail price id',
       () async {
         network = Http.fake({
           '/billing/swap': Http.response(_subscriptionBody),
         });
 
-        await const BillingServiceWeb().swap(
-          plan: 'business',
-          cycle: BillingCycle.monthly,
-        );
+        await const BillingServiceWeb().swap(productKey: 'business_monthly');
 
         network.assertSent(
           (MagicRequest request) =>
-              request.method == 'POST' &&
-              request.url == '/billing/swap' &&
-              request.data is Map<String, dynamic> &&
-              (request.data as Map<String, dynamic>)['plan'] == 'business',
+              request.method == 'POST' && request.url == '/billing/swap',
         );
-        // The WHOLE body, which is what pins the cycle: a driver that dropped it
-        // would still satisfy the predicate above, and the producer would then
-        // pick a price the caller never asked for.
+        // The WHOLE body: the product key carries tier and cycle together, so a
+        // leftover `plan` or `cycle` beside it would be a second answer to the
+        // same question the backend could read instead.
         expect((network.recorded.single.$1.data as Map<String, dynamic>), {
-          'plan': 'business',
-          'cycle': 'monthly',
+          'product': 'business_monthly',
         });
         expect(launcher.launched, isEmpty);
       },
@@ -544,10 +601,7 @@ void main() {
         });
 
         await expectLater(
-          const BillingServiceWeb().swap(
-            plan: 'pro',
-            cycle: BillingCycle.monthly,
-          ),
+          const BillingServiceWeb().swap(productKey: 'pro_monthly'),
           throwsA(
             isA<BillingException>().having(
               (BillingException error) => error.message,
@@ -682,8 +736,7 @@ void main() {
 
       await expectLater(
         driver.checkout(
-          plan: 'pro',
-          cycle: BillingCycle.annual,
+          productKey: 'pro_annual',
           successUrl: 'https://example.com/ok',
           cancelUrl: 'https://example.com/no',
         ),
@@ -717,8 +770,7 @@ void main() {
 
       await expectLater(
         driver.checkout(
-          plan: 'pro',
-          cycle: BillingCycle.annual,
+          productKey: 'pro_annual',
           successUrl: 'https://example.com/ok',
           cancelUrl: 'https://example.com/no',
         ),
@@ -742,8 +794,7 @@ void main() {
       final _FakeHostedPageDriver driver = _FakeHostedPageDriver();
 
       await driver.checkout(
-        plan: 'pro',
-        cycle: BillingCycle.annual,
+        productKey: 'pro_annual',
         successUrl: 'https://example.com/ok',
         cancelUrl: 'https://example.com/no',
       );

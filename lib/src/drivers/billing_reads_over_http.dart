@@ -74,7 +74,9 @@ mixin BillingReadsOverHttp implements BillingService {
     }
 
     // Rows verbatim: a tier's own fields are the vendor's product, and the
-    // consumer already owns the type it decodes them into.
+    // consumer already owns the type it decodes them into. That includes a
+    // row's `products` list (`{key, type, tier, cycle, prices}`), which is
+    // passed through undecoded with the rest of the row.
     return raw.whereType<Map<String, dynamic>>().toList();
   }
 

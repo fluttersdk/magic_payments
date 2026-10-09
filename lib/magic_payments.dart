@@ -33,12 +33,17 @@ export 'src/models/billing_invoices_page.dart';
 export 'src/models/invoice.dart';
 export 'src/models/payment_method.dart';
 export 'src/models/usage_stat.dart';
+export 'src/models/store_product_offer.dart';
+export 'src/models/purchase_context.dart';
 
 // Enums
 export 'src/enums/billing_cycle.dart';
+export 'src/enums/billing_error_code.dart';
+export 'src/enums/product_type.dart';
 export 'src/enums/billing_provider.dart';
 export 'src/enums/plan_status.dart';
 export 'src/enums/manage_via.dart';
+export 'src/enums/store_change_timing.dart';
 export 'src/enums/invoice_status.dart';
 
 // Drivers: the factory ONLY, and one line of it is load-bearing.

@@ -26,13 +26,25 @@ class _RecordingStoreRail implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async => false;
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async =>
+      false;
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async => const {};
 
   @override
   Future<bool> restore() async => false;
 
   @override
   Future<void> openStoreManagement() async {}
+
+  @override
+  ManageVia get store => ManageVia.appStore;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => null;
 }
 
 /// A store rail whose identify for an id finishes only when the test releases
@@ -59,13 +71,25 @@ class _GatedStoreRail implements StoreBillingService {
   }
 
   @override
-  Future<bool> purchase({required String plan}) async => false;
+  Future<bool> purchase(String productKey, {PurchaseContext? context}) async =>
+      false;
+
+  @override
+  Future<Map<String, StoreProductOffer>> products(
+    List<String> productKeys,
+  ) async => const {};
 
   @override
   Future<bool> restore() async => false;
 
   @override
   Future<void> openStoreManagement() async {}
+
+  @override
+  ManageVia get store => ManageVia.appStore;
+
+  @override
+  StoreChangeTiming? get lastChangeTiming => null;
 }
 
 /// A store rail whose identify fails with something other than a
@@ -291,6 +315,40 @@ void main() {
       await StoreIdentitySync.syncNow();
 
       expect(store.identifiedIds, ['team-alpha', 'team-alpha']);
+    });
+
+    test('a binding the rail records elsewhere decides the next sync', () async {
+      // A rail that identifies outside the sync (a direct call, a failed one)
+      // reports the binding it now holds, so the repeat guard compares against
+      // the rail's real state rather than the sync's own memory.
+      final _RecordingStoreRail store = useStoreRail();
+
+      await StoreIdentitySync.syncNow();
+      StoreIdentitySync.recordBinding('team-omega');
+      await StoreIdentitySync.syncNow();
+
+      expect(store.identifiedIds, ['team-alpha', 'team-alpha']);
+    });
+
+    test('a binding the rail clears is identified again', () async {
+      final _RecordingStoreRail store = useStoreRail();
+
+      await StoreIdentitySync.syncNow();
+      StoreIdentitySync.recordBinding(null);
+      await StoreIdentitySync.syncNow();
+
+      expect(store.identifiedIds, ['team-alpha', 'team-alpha']);
+    });
+
+    test('a binding the rail records as the subject skips the sync', () async {
+      // The other direction: a rail already bound to the subject is not asked
+      // again, which a guard that ignored the recorded id would do.
+      final _RecordingStoreRail store = useStoreRail();
+
+      StoreIdentitySync.recordBinding('team-alpha');
+      await StoreIdentitySync.syncNow();
+
+      expect(store.identifiedIds, isEmpty);
     });
 
     test('an empty id also resets the repeat guard', () async {

@@ -54,7 +54,10 @@ class PaymentsArtisanProvider extends ArtisanServiceProvider {
           'Usage:\n'
           '- Call with no arguments for the report and a pass/fail exit code.\n'
           '- Set verbose to true to also print the path and the requirement '
-          'behind each check.',
+          'behind each check.\n'
+          '- Set json to true for one machine-readable object, '
+          '{ok, checks: [{id, status, message, fix?}]}; a key is reported only '
+          'as present, absent or blank, never by value.',
       inputSchema: <String, dynamic>{
         'type': 'object',
         'properties': <String, dynamic>{
@@ -62,6 +65,12 @@ class PaymentsArtisanProvider extends ArtisanServiceProvider {
             'type': 'boolean',
             'description':
                 'Print the path and the requirement behind each check. '
+                'Default: false.',
+          },
+          'json': <String, dynamic>{
+            'type': 'boolean',
+            'description':
+                'Print one JSON object instead of the human report. '
                 'Default: false.',
           },
         },
