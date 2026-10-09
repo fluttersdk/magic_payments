@@ -891,6 +891,90 @@ void main() {
     });
   });
 
+  group('a one-off product is bought beside a held subscription', () {
+    /// An offering holding the subscription packages [subscriptions] (key to
+    /// store product id) plus one consumable, `credits_10`, sold as store
+    /// product [creditsId] in the SDK's own wire shape for an in-app product:
+    /// `NON_SUBSCRIPTION` and no period.
+    Offerings withCredits(Map<String, String> subscriptions, String creditsId) {
+      final Map<String, dynamic> credits = _packageJson(
+        'credits_10',
+        creditsId,
+      );
+      final Map<String, dynamic> product =
+          Map<String, dynamic>.of(credits['product'] as Map<String, dynamic>)
+            ..addAll(<String, dynamic>{
+              'productCategory': 'NON_SUBSCRIPTION',
+              'subscriptionPeriod': null,
+            });
+      final Offering current = _offeringOf('default', <Map<String, dynamic>>[
+        for (final MapEntry<String, String> entry in subscriptions.entries)
+          _packageJson(
+            entry.key,
+            entry.value,
+            period: entry.key.endsWith('_annual') ? 'P1Y' : 'P1M',
+          ),
+        <String, dynamic>{
+          ...credits,
+          'packageType': 'CUSTOM',
+          'product': product,
+        },
+      ]);
+
+      return Offerings(<String, Offering>{
+        'default': current,
+      }, current: current);
+    }
+
+    test('on Play, a subscriber buys credits with no product change', () async {
+      // Routing it through the subscription change refused it as
+      // `unmappedActiveProduct` (a consumable has no tier), or would have
+      // attached a replacement to an in-app product.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: withCredits(const {
+          'pro_monthly': 'pro_sub:monthly',
+          'pro_annual': 'pro_sub:annual',
+        }, 'credits_10'),
+        activeProducts: const ['pro_sub:monthly'],
+      );
+
+      expect(await rail.purchase('credits_10', context: _tiers), isTrue);
+      expect(rail.purchasedProducts, ['credits_10']);
+      expect(rail.productChanges, [isNull]);
+      expect(rail.lastChangeTiming, isNull);
+    });
+
+    test('a subscription on the other store does not refuse credits', () async {
+      // Two charges for one subscription is what `managedElsewhere` prevents;
+      // a consumable is not a second subscription.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withCredits(const {
+          'pro_annual': 'com.app.pro.annual',
+        }, 'com.app.credits.10'),
+        activeProducts: const ['pro_sub:monthly'],
+      );
+
+      expect(await rail.purchase('credits_10'), isTrue);
+      expect(rail.purchasedProducts, ['com.app.credits.10']);
+      expect(rail.lastChangeTiming, isNull);
+    });
+
+    test('a subscription purchase still refuses the other store', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withCredits(const {
+          'pro_annual': 'com.app.pro.annual',
+        }, 'com.app.credits.10'),
+        activeProducts: const ['pro_sub:monthly'],
+      );
+
+      await expectLater(
+        rail.purchase('pro_annual'),
+        _refusedWith(BillingErrorCode.managedElsewhere),
+      );
+    });
+  });
+
   group('a Play subscription is changed in place, never bought twice', () {
     /// The rail the last [changeFor] bought through.
     _FakeStoreRail? lastRail;

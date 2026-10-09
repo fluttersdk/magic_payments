@@ -16,6 +16,7 @@ import 'package:purchases_flutter/purchases_flutter.dart'
         PurchasesConfiguration,
         PurchasesErrorCode,
         PurchasesErrorHelper,
+        ProductCategory,
         StoreProduct,
         StoreProductChangeInfo,
         StoreReplacementMode;
@@ -233,6 +234,10 @@ class RevenueCatStoreService implements StoreBillingService {
   /// refused. With no [context] a change between subscriptions is refused
   /// rather than guessed.
   ///
+  /// A one-off product (consumable or non-consumable) skips all of this: it is
+  /// bought beside a held subscription, on either store, with no change and no
+  /// timing, since it neither replaces nor duplicates a subscription.
+  ///
   /// The App Store rail never passes a change, because StoreKit moves a
   /// subscription inside its group on its own, so a held product it cannot name
   /// does not block the purchase. It still reports Apple's timing: a higher
@@ -264,7 +269,16 @@ class RevenueCatStoreService implements StoreBillingService {
         );
       }
 
-      // 3. What the customer already holds decides whether this is a refusal,
+      // 3. A one-off product (credits, an unlock) is bought beside whatever
+      //    the customer subscribes to: it changes no subscription, so neither
+      //    the cross-store refusal nor a replacement applies to it.
+      if (!_isSubscription(package.storeProduct)) {
+        await purchaseStorePackage(package);
+
+        return true;
+      }
+
+      // 4. What the customer already holds decides whether this is a refusal,
       //    a fresh purchase or a change, and when that change lands.
       final List<String> held = _heldStoreProducts(
         await activeStoreProductIds(),
@@ -278,7 +292,7 @@ class RevenueCatStoreService implements StoreBillingService {
 
       await purchaseStorePackage(package, productChangeInfo: change);
 
-      // 4. Only now: a dismissed or failed sheet changed nothing, and its
+      // 5. Only now: a dismissed or failed sheet changed nothing, and its
       //    timing would announce a change that never happened.
       _lastChangeTiming = timing;
 
@@ -532,6 +546,19 @@ class RevenueCatStoreService implements StoreBillingService {
       );
     }
   }
+
+  /// Whether [product] is a subscription, which is the only kind a purchase
+  /// can collide with: one a customer already holds may need replacing, and
+  /// one another store bills must not be bought twice.
+  ///
+  /// The SDK's category decides. Where it reports none, a billing period does,
+  /// since an in-app product never carries one.
+  bool _isSubscription(StoreProduct product) =>
+      switch (product.productCategory) {
+        ProductCategory.subscription => true,
+        ProductCategory.nonSubscription => false,
+        null => product.subscriptionPeriod != null,
+      };
 
   /// The store product ids the customer holds that a purchase here has to
   /// account for, refusing any id another store sells.
