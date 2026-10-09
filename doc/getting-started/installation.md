@@ -33,7 +33,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  magic_payments: ^0.0.7
+  magic_payments: ^0.0.8
 ```
 
 Then fetch dependencies:
@@ -44,7 +44,7 @@ flutter pub get
 
 > [!NOTE]
 > The public API is still settling ahead of a `0.1.0` release. Pin an exact version
-> (`magic_payments: 0.0.7`) if you depend on it before then, the same caution the package's own
+> (`magic_payments: 0.0.8`) if you depend on it before then, the same caution the package's own
 > README carries.
 
 ---
@@ -107,7 +107,7 @@ per platform.
 |----------|-----|----------------|--------|
 | `BillingService` (5 reads) | Yes | Yes | The backend is the authority on an entitlement whatever rail sold it, so a read never has to refuse a platform. |
 | `WebBillingService` (checkout, swap, cancel, openPortal) | Yes | No (`null`) | The web rail bills a card directly through a hosted checkout and portal. |
-| `StoreBillingService` (identify, purchase, restore, openStoreManagement) | No (`null`) | Declared, not implemented (`null`) | StoreKit and Play Billing take the money; the driver behind this contract has not shipped yet. |
+| `StoreBillingService` (identify, purchase, products, restore, openStoreManagement) | No (`null`) | Yes (`RevenueCatStoreService`) | StoreKit and Play Billing take the money, through RevenueCat. |
 
 Which rail is present is decided by the package's own conditional-import factory, not by
 `kIsWeb` or `Platform.is`. See [Rails](../basics/rails.md) and [Drivers](../basics/drivers.md).
