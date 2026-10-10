@@ -757,6 +757,52 @@ void main() {
     });
   });
 
+  group('checkIntroEligibilitySdk', () {
+    const MethodChannel channel = MethodChannel('purchases_flutter');
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('asks the SDK for the ids and answers each status verbatim', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final List<MethodCall> calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+            calls.add(call);
+
+            return <String, Object?>{
+              'pro_monthly': <String, Object?>{
+                'status':
+                    IntroEligibilityStatus.introEligibilityStatusEligible.index,
+                'description': 'eligible',
+              },
+              'pro_annual': <String, Object?>{
+                'status': IntroEligibilityStatus
+                    .introEligibilityStatusIneligible
+                    .index,
+                'description': 'ineligible',
+              },
+            };
+          });
+
+      final Map<String, IntroEligibilityStatus> answers =
+          await RevenueCatStoreService(
+            store: ManageVia.appStore,
+          ).checkIntroEligibilitySdk(<String>['pro_monthly', 'pro_annual']);
+
+      expect(calls.single.method, 'checkTrialOrIntroductoryPriceEligibility');
+      expect(calls.single.arguments, <String, Object?>{
+        'productIdentifiers': <String>['pro_monthly', 'pro_annual'],
+      });
+      expect(answers, <String, IntroEligibilityStatus>{
+        'pro_monthly': IntroEligibilityStatus.introEligibilityStatusEligible,
+        'pro_annual': IntroEligibilityStatus.introEligibilityStatusIneligible,
+      });
+    });
+  });
+
   group('products reports whether THIS customer may take the intro offer', () {
     /// A one-package catalogue whose package carries an introductory price.
     Offerings withIntro(String productId) {
