@@ -11,6 +11,7 @@ import 'package:magic_payments/src/drivers/revenuecat_store_service.dart';
 import 'package:magic_payments/src/drivers/store_billing_service_factory.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
     show
+        IntroEligibilityStatus,
         Offering,
         Offerings,
         Package,
@@ -754,6 +755,248 @@ void main() {
         throwsA(isA<BillingException>()),
       );
     });
+  });
+
+  group('checkIntroEligibilitySdk', () {
+    const MethodChannel channel = MethodChannel('purchases_flutter');
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null);
+    });
+
+    test('asks the SDK for the ids and answers each status verbatim', () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      final List<MethodCall> calls = <MethodCall>[];
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (MethodCall call) async {
+            calls.add(call);
+
+            return <String, Object?>{
+              'pro_monthly': <String, Object?>{
+                'status':
+                    IntroEligibilityStatus.introEligibilityStatusEligible.index,
+                'description': 'eligible',
+              },
+              'pro_annual': <String, Object?>{
+                'status': IntroEligibilityStatus
+                    .introEligibilityStatusIneligible
+                    .index,
+                'description': 'ineligible',
+              },
+            };
+          });
+
+      final Map<String, IntroEligibilityStatus> answers =
+          await RevenueCatStoreService(
+            store: ManageVia.appStore,
+          ).checkIntroEligibilitySdk(<String>['pro_monthly', 'pro_annual']);
+
+      expect(calls.single.method, 'checkTrialOrIntroductoryPriceEligibility');
+      expect(calls.single.arguments, <String, Object?>{
+        'productIdentifiers': <String>['pro_monthly', 'pro_annual'],
+      });
+      expect(answers, <String, IntroEligibilityStatus>{
+        'pro_monthly': IntroEligibilityStatus.introEligibilityStatusEligible,
+        'pro_annual': IntroEligibilityStatus.introEligibilityStatusIneligible,
+      });
+    });
+  });
+
+  group('products reports whether THIS customer may take the intro offer', () {
+    /// A one-package catalogue whose package carries an introductory price.
+    Offerings withIntro(String productId) {
+      final Offering current = _offeringOf('default', [
+        _packageJson('pro_annual', productId, introPrice: _introPriceJson),
+      ]);
+
+      return Offerings(<String, Offering>{
+        'default': current,
+      }, current: current);
+    }
+
+    test('an eligible answer from the store is introEligible', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withIntro('com.app.pro.annual'),
+        eligibility: const {
+          'com.app.pro.annual':
+              IntroEligibilityStatus.introEligibilityStatusEligible,
+        },
+      );
+
+      final StoreProductOffer offer = (await rail.products([
+        'pro_annual',
+      ]))['pro_annual']!;
+
+      expect(offer.introEligible, isTrue);
+    });
+
+    test('an ineligible answer is not introEligible', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withIntro('com.app.pro.annual'),
+        eligibility: const {
+          'com.app.pro.annual':
+              IntroEligibilityStatus.introEligibilityStatusIneligible,
+        },
+      );
+
+      final StoreProductOffer offer = (await rail.products([
+        'pro_annual',
+      ]))['pro_annual']!;
+
+      expect(offer.introEligible, isFalse);
+      // The offer's own figures still ride along: only the claim is withheld.
+      expect(offer.introPriceString, r'$0.00');
+    });
+
+    test('an unknown answer is not introEligible', () async {
+      // The store could not decide, and RevenueCat's own advice is to show the
+      // non-intro price rather than promise a trial a customer may not get.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withIntro('com.app.pro.annual'),
+        eligibility: const {
+          'com.app.pro.annual':
+              IntroEligibilityStatus.introEligibilityStatusUnknown,
+        },
+      );
+
+      final StoreProductOffer offer = (await rail.products([
+        'pro_annual',
+      ]))['pro_annual']!;
+
+      expect(offer.introEligible, isFalse);
+    });
+
+    test('a no-intro-offer-exists answer is not introEligible', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withIntro('com.app.pro.annual'),
+        eligibility: const {
+          'com.app.pro.annual':
+              IntroEligibilityStatus.introEligibilityStatusNoIntroOfferExists,
+        },
+      );
+
+      final StoreProductOffer offer = (await rail.products([
+        'pro_annual',
+      ]))['pro_annual']!;
+
+      expect(offer.introEligible, isFalse);
+    });
+
+    test(
+      'an id the store left out of its answer is not introEligible',
+      () async {
+        final _FakeStoreRail rail = _FakeStoreRail(
+          offerings: withIntro('com.app.pro.annual'),
+        );
+
+        final StoreProductOffer offer = (await rail.products([
+          'pro_annual',
+        ]))['pro_annual']!;
+
+        expect(offer.introEligible, isFalse);
+      },
+    );
+
+    test('a failed eligibility read leaves every offer ineligible', () async {
+      // The prices are still the store's, so the screen renders; only the intro
+      // claim is lost, and a thrown read is never read as "eligible".
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: withIntro('com.app.pro.annual'),
+        raisingOnEligibility: StateError('eligibility request timed out'),
+      );
+
+      final Map<String, StoreProductOffer> offers = await rail.products([
+        'pro_annual',
+      ]);
+
+      expect(offers.keys, ['pro_annual']);
+      expect(offers['pro_annual']!.introEligible, isFalse);
+      expect(offers['pro_annual']!.priceString, r'$29.00');
+    });
+
+    test('the store is asked by store product id and answers map back to '
+        'the catalogue key', () async {
+      final Offering current = _offeringOf('default', [
+        _packageJson(
+          'pro_annual',
+          'com.app.pro.annual',
+          introPrice: _introPriceJson,
+        ),
+        _packageJson(
+          'business_annual',
+          'com.app.business.annual',
+          introPrice: _introPriceJson,
+        ),
+        _packageJson('pro_monthly', 'com.app.pro.monthly'),
+      ]);
+      final _FakeStoreRail rail = _FakeStoreRail(
+        offerings: Offerings(<String, Offering>{
+          'default': current,
+        }, current: current),
+        eligibility: const {
+          'com.app.pro.annual':
+              IntroEligibilityStatus.introEligibilityStatusEligible,
+          'com.app.business.annual':
+              IntroEligibilityStatus.introEligibilityStatusIneligible,
+        },
+      );
+
+      final Map<String, StoreProductOffer> offers = await rail.products([
+        'pro_annual',
+        'business_annual',
+        'pro_monthly',
+      ]);
+
+      // Package identifiers are the keys; the store only knows its own ids, and
+      // a product with no intro offer is never asked about.
+      expect(rail.eligibilityRequests, [
+        ['com.app.pro.annual', 'com.app.business.annual'],
+      ]);
+      expect(offers['pro_annual']!.introEligible, isTrue);
+      expect(offers['business_annual']!.introEligible, isFalse);
+      expect(offers['pro_monthly']!.introEligible, isFalse);
+    });
+
+    test('a catalogue with no intro offer never reaches the store', () async {
+      final _FakeStoreRail rail = _FakeStoreRail(offerings: _catalogue());
+
+      final StoreProductOffer offer = (await rail.products(['pro']))['pro']!;
+
+      expect(rail.eligibilityRequests, isEmpty);
+      expect(offer.introEligible, isFalse);
+    });
+
+    test(
+      'Play skips the read and treats a present intro price as eligible',
+      () async {
+        // Play only offers what the account may take, and its SDK answers unknown
+        // for everything, so asking would withhold every real trial.
+        final Offering current = _offeringOf('default', [
+          _packageJson(
+            'pro_annual',
+            'pro_sub:annual',
+            introPrice: _introPriceJson,
+          ),
+          _packageJson('pro_monthly', 'pro_sub:monthly'),
+        ]);
+        final _FakeStoreRail rail = _FakeStoreRail(
+          store: ManageVia.playStore,
+          offerings: Offerings(<String, Offering>{
+            'default': current,
+          }, current: current),
+        );
+
+        final Map<String, StoreProductOffer> offers = await rail.products([
+          'pro_annual',
+          'pro_monthly',
+        ]);
+
+        expect(rail.eligibilityRequests, isEmpty);
+        expect(offers['pro_annual']!.introEligible, isTrue);
+        expect(offers['pro_monthly']!.introEligible, isFalse);
+      },
+    );
   });
 
   group('a subscription another store manages is never bought over', () {
@@ -1543,6 +1786,8 @@ class _FakeStoreRail extends RevenueCatStoreService {
     this.raisingOnPurchase,
     this.raisingOnRestore,
     this.raisingOnManagementUrl,
+    this.raisingOnEligibility,
+    this.eligibility = const {},
     this.restores = false,
     this.managementUrl,
     this.opens = true,
@@ -1572,6 +1817,10 @@ class _FakeStoreRail extends RevenueCatStoreService {
   /// purchase among several.
   Object? raisingOnPurchase;
   final Object? raisingOnManagementUrl;
+  final Object? raisingOnEligibility;
+
+  /// What the eligibility seam answers, keyed by store product id.
+  final Map<String, IntroEligibilityStatus> eligibility;
 
   /// What the restore seam reports the store handed back.
   final bool restores;
@@ -1602,6 +1851,9 @@ class _FakeStoreRail extends RevenueCatStoreService {
 
   /// The product change each of those purchases carried, null for none.
   final List<StoreProductChangeInfo?> productChanges = [];
+
+  /// The store product ids of every eligibility read the driver made, in order.
+  final List<List<String>> eligibilityRequests = [];
 
   /// How many times the restore seam was reached.
   int restoreCalls = 0;
@@ -1647,6 +1899,16 @@ class _FakeStoreRail extends RevenueCatStoreService {
     purchased.add(package.identifier);
     purchasedProducts.add(package.storeProduct.identifier);
     productChanges.add(productChangeInfo);
+  }
+
+  @override
+  Future<Map<String, IntroEligibilityStatus>> checkIntroEligibilitySdk(
+    List<String> storeProductIds,
+  ) async {
+    eligibilityRequests.add(storeProductIds);
+    if (raisingOnEligibility != null) throw raisingOnEligibility!;
+
+    return eligibility;
   }
 
   @override

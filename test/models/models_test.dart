@@ -511,4 +511,32 @@ void main() {
       expect(context.tierOfStoreProduct, isEmpty);
     });
   });
+
+  group('StoreProductOffer', () {
+    test('an offer built without an eligibility claim claims none', () {
+      // A caller shows intro copy only when this is true, so the default has to
+      // be the answer that never promises a trial the store did not confirm.
+      const StoreProductOffer offer = StoreProductOffer(
+        priceString: r'$29.00',
+        currencyCode: 'USD',
+        price: 29,
+        introPrice: 0,
+        introPriceString: r'$0.00',
+        introPeriod: 'P2W',
+      );
+
+      expect(offer.introEligible, isFalse);
+    });
+
+    test('an offer carries the eligibility it was given', () {
+      const StoreProductOffer offer = StoreProductOffer(
+        priceString: r'$29.00',
+        currencyCode: 'USD',
+        price: 29,
+        introEligible: true,
+      );
+
+      expect(offer.introEligible, isTrue);
+    });
+  });
 }

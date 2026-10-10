@@ -20,6 +20,7 @@ class StoreProductOffer {
     this.introPrice,
     this.introPriceString,
     this.introPeriod,
+    this.introEligible = false,
   });
 
   /// The price formatted by the store for the customer's locale and currency,
@@ -49,4 +50,14 @@ class StoreProductOffer {
   /// The ISO 8601 period the introductory price lasts (`'P1W'`), or `null`
   /// when the product has no introductory offer.
   final String? introPeriod;
+
+  /// Whether the store says THIS customer may take the introductory offer.
+  ///
+  /// `true` only on the store's own confirmation, so a caller shows intro copy
+  /// ("free for 14 days, then ...") only when it is `true` and the plain price
+  /// otherwise: an unknown answer, a failed read and an ineligible customer all
+  /// read `false`, because promising a trial the customer cannot get misleads
+  /// them. Having an [introPrice] says the product HAS an offer, not that this
+  /// customer may take it.
+  final bool introEligible;
 }
