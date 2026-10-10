@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`StoreProductOffer.introEligible`** (default `false`) is `true` only when the store says THIS customer may take the introductory offer, so a caller shows intro copy ("free for 14 days, then ...") only when it is `true`. On the App Store `products()` asks the SDK once for the store product ids that carry an intro price and only a definite `eligible` answer counts (unknown and ineligible stay `false`); on Play it skips the read and treats a present intro price as eligible, since Play only offers what the account may take (not verified against a real account). A failed eligibility read is logged and leaves every offer `false`. (`lib/src/models/store_product_offer.dart`, `lib/src/drivers/revenuecat_store_service.dart`, `doc/basics/rails.md`)
+
 ## 0.0.8
 
 ### Added

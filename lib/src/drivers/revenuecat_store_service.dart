@@ -8,6 +8,8 @@ import 'package:magic/magic.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
     show
         CustomerInfo,
+        IntroEligibility,
+        IntroEligibilityStatus,
         Offering,
         Offerings,
         Package,
@@ -331,12 +333,28 @@ class RevenueCatStoreService implements StoreBillingService {
     try {
       final Offerings offerings = await fetchOfferings();
 
-      // Resolved through the same lookup `purchase` uses, so the price on the
-      // screen is the price of the product the sheet will sell.
-      return <String, StoreProductOffer>{
+      // 1. Resolved through the same lookup `purchase` uses, so the price on the
+      //    screen is the price of the product the sheet will sell.
+      final Map<String, Package> packages = <String, Package>{
         for (final String key in productKeys)
           if (packageFor(offerings, key) case final Package package)
-            key: _offerFor(package.storeProduct),
+            key: package,
+      };
+
+      // 2. Eligibility is the store's answer about the customer, read per store
+      //    product id, which is not the catalogue key the map is keyed by.
+      final Set<String> eligible = await _introEligibleStoreProducts([
+        for (final Package package in packages.values) package.storeProduct,
+      ]);
+
+      return <String, StoreProductOffer>{
+        for (final MapEntry<String, Package> entry in packages.entries)
+          entry.key: _offerFor(
+            entry.value.storeProduct,
+            introEligible: eligible.contains(
+              entry.value.storeProduct.identifier,
+            ),
+          ),
       };
     } on BillingException {
       rethrow;
@@ -828,8 +846,59 @@ class RevenueCatStoreService implements StoreBillingService {
     );
   }
 
-  /// The store's own figures for [product], verbatim.
-  StoreProductOffer _offerFor(StoreProduct product) => StoreProductOffer(
+  /// The store product ids among [products] whose introductory offer THIS
+  /// customer may take.
+  ///
+  /// Only products that carry an introductory price are considered, since the
+  /// store has nothing to say about the others. The App Store is asked: its
+  /// answer is the customer's own history with the subscription group, and only
+  /// a definite `eligible` counts, so unknown and ineligible both stay out. Play
+  /// is not asked, because its SDK answers unknown for everything and so would
+  /// withhold every real trial; a present intro price is taken as eligible there
+  /// since Play only offers what the account may take. That Play half is
+  /// unverified against a real account.
+  ///
+  /// A failed read logs and answers nothing eligible: prices still render, and
+  /// an offer is never promised on a read that did not happen.
+  Future<Set<String>> _introEligibleStoreProducts(
+    Iterable<StoreProduct> products,
+  ) async {
+    final Set<String> withIntro = <String>{
+      for (final StoreProduct product in products)
+        if (product.introductoryPrice != null) product.identifier,
+    };
+    if (withIntro.isEmpty) return <String>{};
+
+    if (store == ManageVia.playStore) return withIntro;
+
+    try {
+      final Map<String, IntroEligibilityStatus> answers =
+          await checkIntroEligibilitySdk(withIntro.toList());
+
+      return <String>{
+        for (final MapEntry<String, IntroEligibilityStatus> answer
+            in answers.entries)
+          if (withIntro.contains(answer.key) &&
+              answer.value ==
+                  IntroEligibilityStatus.introEligibilityStatusEligible)
+            answer.key,
+      };
+    } catch (error) {
+      Log.warning(
+        '[RevenueCatStoreService.products] intro eligibility not read, so no '
+        'intro offer is claimed: $error',
+      );
+
+      return <String>{};
+    }
+  }
+
+  /// The store's own figures for [product], verbatim, with [introEligible] as
+  /// the store answered it for this customer.
+  StoreProductOffer _offerFor(
+    StoreProduct product, {
+    required bool introEligible,
+  }) => StoreProductOffer(
     priceString: product.priceString,
     currencyCode: product.currencyCode,
     price: product.price,
@@ -837,6 +906,7 @@ class RevenueCatStoreService implements StoreBillingService {
     introPrice: product.introductoryPrice?.price,
     introPriceString: product.introductoryPrice?.priceString,
     introPeriod: product.introductoryPrice?.period,
+    introEligible: introEligible,
   );
 
   // ---------------------------------------------------------------------------
@@ -870,6 +940,28 @@ class RevenueCatStoreService implements StoreBillingService {
   /// Reads the rail's product catalogue. THE SEAM.
   @visibleForTesting
   Future<Offerings> fetchOfferings() => Purchases.getOfferings();
+
+  /// Asks the store which of [storeProductIds] this customer may take the
+  /// introductory offer on. THE SEAM.
+  ///
+  /// Keyed by store product id, with the SDK's status verbatim: deciding that
+  /// only `eligible` counts belongs to the driver, not to the line that reaches
+  /// the channel. iOS only; Android answers unknown for everything, which is why
+  /// the Play rail never calls this.
+  @visibleForTesting
+  Future<Map<String, IntroEligibilityStatus>> checkIntroEligibilitySdk(
+    List<String> storeProductIds,
+  ) async {
+    final Map<String, IntroEligibility> answers =
+        await Purchases.checkTrialOrIntroductoryPriceEligibility(
+          storeProductIds,
+        );
+
+    return <String, IntroEligibilityStatus>{
+      for (final MapEntry<String, IntroEligibility> answer in answers.entries)
+        answer.key: answer.value.status,
+    };
+  }
 
   /// Reads the store product ids the identified account holds active. THE
   /// SEAM.

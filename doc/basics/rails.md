@@ -192,6 +192,18 @@ localized), `currencyCode`, `price`, an ISO `subscriptionPeriod` and the intro-p
 the map; render that product as unavailable rather than guessing a price. `products()` resolves
 through the same offering packages `purchase` uses, so a key it prices is a key a purchase can buy.
 
+`introEligible` says whether THIS customer may take the intro offer, and defaults to `false`: show
+intro copy ("Free for 14 days, then ...") only when it is `true`, and the plain price otherwise. An
+`introPrice` alone says the product has an offer, not that the customer may take it, and Apple
+requires that an ineligible customer is not misled. The rule is per store, read off `store`:
+
+| Store | How `introEligible` is decided |
+|---|---|
+| App Store | One SDK read of the store product ids that carry an intro price. Only a definite `eligible` is `true`; `unknown`, `ineligible` and no offer are `false`. |
+| Play | No read: the SDK answers unknown for everything on Android. A present intro price is treated as eligible, because Play only offers what the account may take. Not verified against a real account. |
+
+A failed eligibility read is logged and leaves every `introEligible` `false`; the prices still render.
+
 ### <a name="store-getter"></a>`store`: which store this is
 
 `StoreBillingService.store` answers `ManageVia.appStore` or `ManageVia.playStore`. Compare it with
