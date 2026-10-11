@@ -43,6 +43,15 @@ enum BillingErrorCode {
   /// The customer already holds the product being bought.
   alreadyOwned,
 
+  /// A plan change that is charged at once was declined by the card, so
+  /// nothing changed. The customer's next step is another payment method.
+  paymentDeclined,
+
+  /// A plan change that is charged at once needed the card holder to confirm
+  /// the payment (3D Secure), which an in-place change cannot ask for, so
+  /// nothing changed. The card works; it is the confirmation that is missing.
+  paymentRequiresAction,
+
   /// The request never reached the rail or its answer never came back.
   network,
 
