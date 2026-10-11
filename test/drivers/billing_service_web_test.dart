@@ -538,30 +538,36 @@ void main() {
       'billing': {'reason': reason, 'provider': 'stripe'},
     };
 
-    test('a declined card is paymentDeclined with the producer sentence', () async {
-      const String sentence =
-          'Your card was declined, so your plan has not changed.';
-      network = Http.fake({
-        '/billing/swap': Http.response(refusal('payment_failed', sentence), 402),
-      });
+    test(
+      'a declined card is paymentDeclined with the producer sentence',
+      () async {
+        const String sentence =
+            'Your card was declined, so your plan has not changed.';
+        network = Http.fake({
+          '/billing/swap': Http.response(
+            refusal('payment_failed', sentence),
+            402,
+          ),
+        });
 
-      await expectLater(
-        const BillingServiceWeb().swap(productKey: 'pro_annual'),
-        throwsA(
-          isA<BillingException>()
-              .having(
-                (BillingException error) => error.code,
-                'code',
-                BillingErrorCode.paymentDeclined,
-              )
-              .having(
-                (BillingException error) => error.message,
-                'message',
-                sentence,
-              ),
-        ),
-      );
-    });
+        await expectLater(
+          const BillingServiceWeb().swap(productKey: 'pro_annual'),
+          throwsA(
+            isA<BillingException>()
+                .having(
+                  (BillingException error) => error.code,
+                  'code',
+                  BillingErrorCode.paymentDeclined,
+                )
+                .having(
+                  (BillingException error) => error.message,
+                  'message',
+                  sentence,
+                ),
+          ),
+        );
+      },
+    );
 
     test('a card asking for confirmation is paymentRequiresAction', () async {
       network = Http.fake({
