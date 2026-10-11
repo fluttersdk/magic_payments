@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`BillingErrorCode.paymentDeclined` and `BillingErrorCode.paymentRequiresAction`.** A plan change the producer charges at once (magic-starter-laravel 0.0.28: an upgrade or a cycle change) answers `402` with `billing.reason` `payment_failed` or `payment_requires_action` when the card declines or asks for a 3D Secure confirmation, and nothing changes. The web rail's `swap` maps those to the two new codes and keeps the producer's localised sentence as the message; any other 402 stays `unknown`. A caller switching exhaustively on `BillingErrorCode` adds the two cases. (`lib/src/enums/billing_error_code.dart`, `lib/src/drivers/billing_service_web.dart`)
+
 ## 0.0.9
 
 ### Added

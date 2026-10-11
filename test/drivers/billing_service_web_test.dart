@@ -529,6 +529,78 @@ void main() {
     });
   });
 
+  group('BillingServiceWeb names a swap the card did not pay for', () {
+    /// The producer's 402 for a charged swap, copied from
+    /// `refuseDeclinedSwap()`: the localised sentence and the machine reason
+    /// under `billing`.
+    Map<String, dynamic> refusal(String reason, String message) => {
+      'message': message,
+      'billing': {'reason': reason, 'provider': 'stripe'},
+    };
+
+    test('a declined card is paymentDeclined with the producer sentence', () async {
+      const String sentence =
+          'Your card was declined, so your plan has not changed.';
+      network = Http.fake({
+        '/billing/swap': Http.response(refusal('payment_failed', sentence), 402),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: 'pro_annual'),
+        throwsA(
+          isA<BillingException>()
+              .having(
+                (BillingException error) => error.code,
+                'code',
+                BillingErrorCode.paymentDeclined,
+              )
+              .having(
+                (BillingException error) => error.message,
+                'message',
+                sentence,
+              ),
+        ),
+      );
+    });
+
+    test('a card asking for confirmation is paymentRequiresAction', () async {
+      network = Http.fake({
+        '/billing/swap': Http.response(
+          refusal('payment_requires_action', 'Your bank asked to confirm.'),
+          402,
+        ),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: 'pro_annual'),
+        throwsA(
+          isA<BillingException>().having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.paymentRequiresAction,
+          ),
+        ),
+      );
+    });
+
+    test('a 402 with no known reason keeps no code it was not given', () async {
+      network = Http.fake({
+        '/billing/swap': Http.response({'message': 'Payment required.'}, 402),
+      });
+
+      await expectLater(
+        const BillingServiceWeb().swap(productKey: 'pro_annual'),
+        throwsA(
+          isA<BillingException>().having(
+            (BillingException error) => error.code,
+            'code',
+            BillingErrorCode.unknown,
+          ),
+        ),
+      );
+    });
+  });
+
   group('BillingServiceWeb swap and cancel', () {
     test(
       'swap posts the catalogue product key, never a rail price id',

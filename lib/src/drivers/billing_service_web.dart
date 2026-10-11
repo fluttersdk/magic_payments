@@ -215,26 +215,47 @@ class BillingServiceWeb
   /// `REFUSAL_PRODUCT_NOT_SELLABLE`).
   static const String productNotSellable = 'product_not_sellable';
 
+  /// The producer's `billing.reason` for a charged plan change the card
+  /// declined (`BillingController::REASON_PAYMENT_FAILED`), on a 402.
+  static const String paymentFailed = 'payment_failed';
+
+  /// The producer's `billing.reason` for a charged plan change the card asked
+  /// to confirm (`BillingController::REASON_PAYMENT_REQUIRES_ACTION`), on a 402.
+  static const String paymentRequiresAction = 'payment_requires_action';
+
   /// The [BillingException] a refused write that named a product key throws.
   ///
-  /// The producer's own sentence travels as the message, and its `code` decides
-  /// the [BillingErrorCode]: [BillingErrorCode.productUnavailable] for
-  /// [productNotSellable] on a 422, and [BillingErrorCode.unknown] for anything
-  /// else, so a 422 for a missing field is never reported as a product the
-  /// backend refuses to sell.
+  /// The producer's own sentence travels as the message, and its machine word
+  /// decides the [BillingErrorCode]: [BillingErrorCode.productUnavailable] for
+  /// [productNotSellable] on a 422, [BillingErrorCode.paymentDeclined] and
+  /// [BillingErrorCode.paymentRequiresAction] for the two 402 reasons, and
+  /// [BillingErrorCode.unknown] for anything else, so a 422 for a missing field
+  /// is never reported as a product the backend refuses to sell.
   BillingException _productRefusal(MagicResponse response, String fallback) {
-    final Object? body = response.data;
-    final bool unsellable =
-        response.statusCode == 422 &&
-        body is Map<String, dynamic> &&
-        body['code'] == productNotSellable;
-
     return BillingException(
       response.errorMessage ?? fallback,
-      code: unsellable
-          ? BillingErrorCode.productUnavailable
-          : BillingErrorCode.unknown,
+      code: _refusalCode(response),
     );
+  }
+
+  BillingErrorCode _refusalCode(MagicResponse response) {
+    final Object? body = response.data;
+    if (body is! Map<String, dynamic>) return BillingErrorCode.unknown;
+
+    if (response.statusCode == 422 && body['code'] == productNotSellable) {
+      return BillingErrorCode.productUnavailable;
+    }
+
+    final Object? billing = body['billing'];
+    if (response.statusCode != 402 || billing is! Map<String, dynamic>) {
+      return BillingErrorCode.unknown;
+    }
+
+    return switch (billing['reason']) {
+      paymentFailed => BillingErrorCode.paymentDeclined,
+      paymentRequiresAction => BillingErrorCode.paymentRequiresAction,
+      _ => BillingErrorCode.unknown,
+    };
   }
 
   // The five BillingService reads come from [BillingReadsOverHttp], shared with

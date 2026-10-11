@@ -16,6 +16,8 @@ void main() {
         BillingErrorCode.pending,
         BillingErrorCode.receiptInUse,
         BillingErrorCode.alreadyOwned,
+        BillingErrorCode.paymentDeclined,
+        BillingErrorCode.paymentRequiresAction,
         BillingErrorCode.network,
         BillingErrorCode.store,
         BillingErrorCode.unknown,
