@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.0.12
+
+### Changed
+
+- **Every sibling floor names this batch's release.** `magic` moves `^0.0.28` to `^0.0.29`; `fluttersdk_artisan` stays at `^0.0.20`. The old range already admitted 0.0.29, so a fresh `pub get` resolves nothing differently; what changes is that the floor names the release this package is verified against. magic 0.0.29 adds two abstract members to `BroadcastChannel` (`isSubscribed`, `onSubscriptionChanged`), which this package does not implement, and a `webOnlyWindowName` named parameter to `LaunchAdapter.launch()`, which only this package's test double implements and which already takes it (#23); wind 1.9.0, which magic 0.0.29 names, makes `tracking-*` em, and this package writes no `tracking-*` class. The bug report template's version placeholders move too. (`pubspec.yaml`, `test/pubspec_floors_test.dart`, `.github/ISSUE_TEMPLATE/bug_report.yml`)
+
 ## 0.0.11
 
 ### Changed
