@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 
 // One literal, one owner: the command that WRITES the key declares what may be
 // written, and this one reports anything outside it. Both stay inside the
@@ -44,11 +44,11 @@ import 'configure_command.dart' show servedDriverModes;
 /// ## Usage
 ///
 /// ```bash
-/// dart run <app>:artisan payments:doctor
-/// dart run <app>:artisan payments:doctor --verbose
-/// dart run <app>:artisan payments:doctor --json
+/// dart run magic:dowel payments:doctor
+/// dart run magic:dowel payments:doctor --verbose
+/// dart run magic:dowel payments:doctor --json
 /// ```
-class DoctorCommand extends ArtisanCommand {
+class DoctorCommand extends DowelCommand {
   @override
   String get signature =>
       'payments:doctor '
@@ -129,9 +129,8 @@ class DoctorCommand extends ArtisanCommand {
     if (!configExists()) {
       return null;
     }
-    final RegExpMatch? match = RegExp(
-      "'driver':\\s*'([^']*)'",
-    ).firstMatch(FileHelper.readFile(_abs(_configPath)));
+    final RegExpMatch? match = RegExp("'driver':\\s*'([^']*)'")
+        .firstMatch(FileHelper.readFile(_abs(_configPath)));
     return match?.group(1);
   }
 
@@ -399,9 +398,8 @@ class DoctorCommand extends ArtisanCommand {
     if (!FileHelper.fileExists(path)) {
       return false;
     }
-    return RegExp(
-      r'PaymentsServiceProvider\s*(?:\(|\.new)',
-    ).hasMatch(FileHelper.readFile(path));
+    return RegExp(r'PaymentsServiceProvider\s*(?:\(|\.new)')
+        .hasMatch(FileHelper.readFile(path));
   }
 
   /// `true` when `lib/main.dart` passes `paymentsConfig` to `configFactories`.
@@ -410,9 +408,8 @@ class DoctorCommand extends ArtisanCommand {
     if (!FileHelper.fileExists(path)) {
       return false;
     }
-    return RegExp(
-      r'\(\)\s*=>\s*paymentsConfig\b',
-    ).hasMatch(FileHelper.readFile(path));
+    return RegExp(r'\(\)\s*=>\s*paymentsConfig\b')
+        .hasMatch(FileHelper.readFile(path));
   }
 
   // ---------------------------------------------------------------------------
@@ -464,7 +461,7 @@ class DoctorCommand extends ArtisanCommand {
         details: <String>[_configPath],
         okMessage: '$_configPath exists',
         errorMessage: '$_configPath not found',
-        fix: 'run `dart run <app>:artisan payments:install`',
+        fix: 'run `dart run magic:dowel payments:install`',
         issues: const <String>[],
       ),
       _check(
@@ -474,8 +471,8 @@ class DoctorCommand extends ArtisanCommand {
             '$_configPath declares the payments root and a served driver',
         errorMessage: configProblems.join('; '),
         fix:
-            'run `dart run <app>:artisan payments:install`, or set the driver '
-            'with `dart run <app>:artisan payments:configure --driver=platform`',
+            'run `dart run magic:dowel payments:install`, or set the driver '
+            'with `dart run magic:dowel payments:configure --driver=platform`',
         issues: configProblems,
       ),
       _check(
@@ -489,7 +486,7 @@ class DoctorCommand extends ArtisanCommand {
         errorMessage:
             '$_appConfigPath does not register PaymentsServiceProvider in its '
             'providers list',
-        fix: 'run `dart run <app>:artisan payments:install`',
+        fix: 'run `dart run magic:dowel payments:install`',
       ),
       _check(
         'config_factory_wired',
@@ -499,7 +496,7 @@ class DoctorCommand extends ArtisanCommand {
         okMessage: '$_mainPath passes paymentsConfig to configFactories',
         errorMessage:
             '$_mainPath does not pass paymentsConfig to configFactories',
-        fix: 'run `dart run <app>:artisan payments:install`',
+        fix: 'run `dart run magic:dowel payments:install`',
       ),
       _storeKeyCheck(),
     ];
@@ -665,7 +662,7 @@ class DoctorCommand extends ArtisanCommand {
   }
 
   @override
-  Future<int> handle(ArtisanContext ctx) async {
+  Future<int> handle(DowelContext ctx) async {
     if (ctx.input.option('json') as bool? ?? false) {
       final Map<String, Object> report = jsonReport();
 
@@ -689,11 +686,9 @@ class DoctorCommand extends ArtisanCommand {
     }
 
     ctx.output.warning('Fix the above, then re-run this command:');
+    ctx.output.writeln('  • scaffold:   dart run magic:dowel payments:install');
     ctx.output.writeln(
-      '  • scaffold:   dart run <app>:artisan payments:install',
-    );
-    ctx.output.writeln(
-      '  • edit a key: dart run <app>:artisan payments:configure --show',
+      '  • edit a key: dart run magic:dowel payments:configure --show',
     );
     return 1;
   }
@@ -736,7 +731,7 @@ enum DoctorCheckStatus {
 ///
 /// Every field is final and the constructor const. Not `@immutable`: that is
 /// `package:meta`, and the CLI tree imports nothing but `dart:` and
-/// `fluttersdk_artisan` so a process with no Flutter engine can load it.
+/// `dowel` so a process with no Flutter engine can load it.
 class DoctorCheck {
   /// Creates a [DoctorCheck].
   const DoctorCheck({

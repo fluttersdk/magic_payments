@@ -365,28 +365,25 @@ void main() {
   });
 
   group('syncs for different subjects', () {
-    test(
-      'a switch during an identify leaves the rail on the newer subject, whatever order the rail finishes in',
-      () async {
-        final _GatedStoreRail store = _GatedStoreRail();
-        Payments.extend(PaymentsManager.storeRole, () => store);
+    test('a switch during an identify leaves the rail on the newer subject, whatever order the rail finishes in', () async {
+      final _GatedStoreRail store = _GatedStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => store);
 
-        final Future<void> first = StoreIdentitySync.syncNow();
-        await pumpEventQueue();
-        billable = 'team-beta';
-        final Future<void> second = StoreIdentitySync.syncNow();
-        await pumpEventQueue();
+      final Future<void> first = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
+      billable = 'team-beta';
+      final Future<void> second = StoreIdentitySync.syncNow();
+      await pumpEventQueue();
 
-        // The rail finishes the newer call first, then the older one.
-        store.release('team-beta');
-        await pumpEventQueue();
-        store.release('team-alpha');
-        await Future.wait(<Future<void>>[first, second]);
+      // The rail finishes the newer call first, then the older one.
+      store.release('team-beta');
+      await pumpEventQueue();
+      store.release('team-alpha');
+      await Future.wait(<Future<void>>[first, second]);
 
-        expect(store.startedIds, ['team-alpha', 'team-beta']);
-        expect(store.bound, 'team-beta');
-      },
-    );
+      expect(store.startedIds, ['team-alpha', 'team-beta']);
+      expect(store.bound, 'team-beta');
+    });
 
     test(
       'a sync reads the subject when its turn comes, not when it was called',
@@ -425,19 +422,16 @@ void main() {
       );
     });
 
-    test(
-      'an error that is not a BillingException reaches the caller and is retried',
-      () async {
-        final _BrokenStoreRail store = _BrokenStoreRail();
-        Payments.extend(PaymentsManager.storeRole, () => store);
+    test('an error that is not a BillingException reaches the caller and is retried', () async {
+      final _BrokenStoreRail store = _BrokenStoreRail();
+      Payments.extend(PaymentsManager.storeRole, () => store);
 
-        await expectLater(StoreIdentitySync.syncNow(), throwsStateError);
-        await expectLater(StoreIdentitySync.syncNow(), throwsStateError);
+      await expectLater(StoreIdentitySync.syncNow(), throwsStateError);
+      await expectLater(StoreIdentitySync.syncNow(), throwsStateError);
 
-        // Forgotten on failure, so the second sync asked the rail again.
-        expect(store.identifiedIds, ['team-alpha', 'team-alpha']);
-      },
-    );
+      // Forgotten on failure, so the second sync asked the rail again.
+      expect(store.identifiedIds, ['team-alpha', 'team-alpha']);
+    });
 
     test(
       'an auth change whose sync throws logs the error instead of escaping',

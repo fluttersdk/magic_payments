@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:fluttersdk_artisan/artisan.dart';
-// ALIASED for the same reason the provider aliases it: `artisan.dart` above
+import 'package:dowel/dowel.dart';
+// ALIASED for the same reason the provider aliases it: `dowel.dart` above
 // exports its own toolchain `DoctorCommand`, so an unprefixed import here makes
 // every mention of the name ambiguous and the file will not compile.
 import 'package:magic_payments/src/cli/commands/doctor_command.dart'
@@ -29,7 +29,7 @@ void main() {
   Future<(int, String)> run({bool verbose = false, bool json = false}) async {
     final output = BufferedOutput();
     final code = await command.handle(
-      ArtisanContext.bare(
+      DowelContext.bare(
         MapInput(<String, dynamic>{
           'verbose': verbose,
           'json': json,
@@ -173,26 +173,23 @@ Map<String, dynamic> get paymentsConfig => {
   group('payments:doctor reports the store rail key without failing on it', () {
     setUp(writeInstalledState);
 
-    test(
-      'the stub as published reads as blank, and says what that costs',
-      () async {
-        // The fixture IS `assets/stubs/install/payments_config.stub`, so this
-        // asserts the shipped stub rather than a copy of it: the block is present
-        // with every platform arm left empty, which is the state a real project
-        // ships in first.
-        expect(command.storeKeyState(), 'blank');
+    test('the stub as published reads as blank, and says what that costs', () async {
+      // The fixture IS `assets/stubs/install/payments_config.stub`, so this
+      // asserts the shipped stub rather than a copy of it: the block is present
+      // with every platform arm left empty, which is the state a real project
+      // ships in first.
+      expect(command.storeKeyState(), 'blank');
 
-        final (code, output) = await run();
+      final (code, output) = await run();
 
-        // Still exit 0. A web-only or desktop-only app is CORRECT without this
-        // key, so failing here would turn a sound project red. The measured
-        // alternative was worse: a doctor that passed in silence while the store
-        // rail could not be configured at all.
-        expect(code, 0);
-        expect(output, contains('store rail key: blank'));
-        expect(output, contains('throw at purchase time'));
-      },
-    );
+      // Still exit 0. A web-only or desktop-only app is CORRECT without this
+      // key, so failing here would turn a sound project red. The measured
+      // alternative was worse: a doctor that passed in silence while the store
+      // rail could not be configured at all.
+      expect(code, 0);
+      expect(output, contains('store rail key: blank'));
+      expect(output, contains('throw at purchase time'));
+    });
 
     test('a filled key reads as declared and drops the note', () async {
       File(at('lib/config/payments.dart')).writeAsStringSync('''
@@ -505,19 +502,18 @@ void main() async {
         'healthy': () {},
         'no main wiring': () =>
             File(at('lib/main.dart')).writeAsStringSync('void main() {}'),
-        'no provider': () => File(
-          at('lib/config/app.dart'),
-        ).writeAsStringSync('final appConfig = {};'),
-        'blank driver': () => File(
-          at('lib/config/payments.dart'),
-        ).writeAsStringSync("final c = {'payments': {'driver': ''}};"),
+        'no provider': () =>
+            File(at('lib/config/app.dart'))
+                .writeAsStringSync('final appConfig = {};'),
+        'blank driver': () =>
+            File(at('lib/config/payments.dart'))
+                .writeAsStringSync("final c = {'payments': {'driver': ''}};"),
         'unresolved': () =>
             File(at('.dart_tool/package_config.json')).deleteSync(),
       };
 
-      final String resolved = File(
-        at('.dart_tool/package_config.json'),
-      ).readAsStringSync();
+      final String resolved = File(at('.dart_tool/package_config.json'))
+          .readAsStringSync();
 
       for (final MapEntry<String, void Function()> breakage
           in breakages.entries) {

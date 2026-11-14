@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 
 /// The only `payments.driver` value the runtime serves.
 ///
@@ -53,10 +53,10 @@ const Set<String> servedDriverModes = {'platform'};
 /// ## Usage
 ///
 /// ```bash
-/// dart run <app>:artisan payments:configure --show
-/// dart run <app>:artisan payments:configure --driver=platform
+/// dart run magic:dowel payments:configure --show
+/// dart run magic:dowel payments:configure --driver=platform
 /// ```
-class ConfigureCommand extends ArtisanCommand {
+class ConfigureCommand extends DowelCommand {
   @override
   String get signature =>
       'payments:configure '
@@ -136,7 +136,7 @@ class ConfigureCommand extends ArtisanCommand {
   }
 
   @override
-  Future<int> handle(ArtisanContext ctx) async {
+  Future<int> handle(DowelContext ctx) async {
     ctx.output.info(ConsoleStyle.header('Magic Payments'));
 
     // 1. Nothing to configure is a distinct outcome from a bad value, and it
@@ -144,7 +144,7 @@ class ConfigureCommand extends ArtisanCommand {
     if (!configExists()) {
       ctx.output.error('No configuration at lib/config/payments.dart.');
       ctx.output.info(
-        'Scaffold it first: dart run <app>:artisan payments:install',
+        'Scaffold it first: dart run magic:dowel payments:install',
       );
       return 1;
     }
@@ -188,7 +188,7 @@ class ConfigureCommand extends ArtisanCommand {
   }
 
   /// Prints the values currently in the published config.
-  void _show(ArtisanContext ctx) {
+  void _show(DowelContext ctx) {
     final String? driver = currentDriver();
     ctx.output.info('lib/config/payments.dart');
     ctx.output.info("  driver: ${driver == null ? '(absent)' : "'$driver'"}");

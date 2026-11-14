@@ -107,29 +107,23 @@ void main() {
       expect(Payments.billing.runtimeType, createBillingService().runtimeType);
     });
 
-    test(
-      'boot reports which driver and which rails this build resolved',
-      () async {
-        final FakeLogManager log = Log.fake();
-        final MagicApp app = MagicApp.instance;
-        app.register(PaymentsServiceProvider(app));
+    test('boot reports which driver and which rails this build resolved', () async {
+      final FakeLogManager log = Log.fake();
+      final MagicApp app = MagicApp.instance;
+      app.register(PaymentsServiceProvider(app));
 
-        await app.boot();
+      await app.boot();
 
-        // The single most useful line in a support ticket that says "billing says
-        // it is unsupported": it names the resolved implementation and whether
-        // each rail is present, read from the same source the getters read.
-        final String message = log.entries
-            .map((FakeLogEntry entry) => entry.message)
-            .join('\n');
-        expect(
-          message,
-          contains(createBillingService().runtimeType.toString()),
-        );
-        expect(message, contains('web'));
-        expect(message, contains('store'));
-      },
-    );
+      // The single most useful line in a support ticket that says "billing says
+      // it is unsupported": it names the resolved implementation and whether
+      // each rail is present, read from the same source the getters read.
+      final String message = log.entries
+          .map((FakeLogEntry entry) => entry.message)
+          .join('\n');
+      expect(message, contains(createBillingService().runtimeType.toString()));
+      expect(message, contains('web'));
+      expect(message, contains('store'));
+    });
   });
 }
 

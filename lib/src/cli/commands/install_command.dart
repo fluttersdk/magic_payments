@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 
 /// `payments:install`, the one-time scaffold.
 ///
@@ -38,11 +38,11 @@ import 'package:fluttersdk_artisan/artisan.dart';
 /// ## Usage
 ///
 /// ```bash
-/// dart run <app>:artisan payments:install
-/// dart run <app>:artisan payments:install --dry-run
-/// dart run <app>:artisan payments:install --force
+/// dart run magic:dowel payments:install
+/// dart run magic:dowel payments:install --dry-run
+/// dart run magic:dowel payments:install --force
 /// ```
-class InstallCommand extends ArtisanInstallCommand {
+class InstallCommand extends DowelInstallCommand {
   @override
   String get signature => 'payments:install $baseFlags';
 
@@ -52,7 +52,7 @@ class InstallCommand extends ArtisanInstallCommand {
       'provider and wire the config factory.';
 
   @override
-  String pluginName(ArtisanContext ctx) => 'magic_payments';
+  String pluginName(DowelContext ctx) => 'magic_payments';
 
   /// Absolute path to the consumer's project root, resolved on access.
   String get projectRoot => getProjectRoot();
@@ -65,7 +65,7 @@ class InstallCommand extends ArtisanInstallCommand {
   /// command behaves the same whether it was invoked from the project root or
   /// from a subdirectory of it.
   @override
-  InstallContext buildContext(ArtisanContext ctx) =>
+  InstallContext buildContext(DowelContext ctx) =>
       InstallContext.real(ctx, projectRoot: projectRoot);
 
   /// Resolves the absolute path of this package's bundled `install.yaml`.
@@ -122,9 +122,9 @@ class InstallCommand extends ArtisanInstallCommand {
       // path dependency inside the same workspace.
       final String resolved = rootUri.startsWith('file://')
           ? Uri.parse(rootUri).toFilePath()
-          : Directory(
-              '$projectRoot/.dart_tool',
-            ).uri.resolve(rootUri).toFilePath();
+          : Directory('$projectRoot/.dart_tool').uri
+                .resolve(rootUri)
+                .toFilePath();
       return resolved.endsWith(Platform.pathSeparator)
           ? resolved.substring(0, resolved.length - 1)
           : resolved;
@@ -134,7 +134,7 @@ class InstallCommand extends ArtisanInstallCommand {
   }
 
   @override
-  Future<int> handle(ArtisanContext ctx) async {
+  Future<int> handle(DowelContext ctx) async {
     ctx.output.info(ConsoleStyle.header('Magic Payments'));
 
     // 1. Locate the bundled manifest. A null here almost always means
@@ -177,7 +177,7 @@ class InstallCommand extends ArtisanInstallCommand {
 
   /// Turns a [TransactionResult] into a process exit code, and says what the
   /// operator should do about it.
-  int _renderResult(ArtisanContext ctx, TransactionResult result) {
+  int _renderResult(DowelContext ctx, TransactionResult result) {
     switch (result) {
       case Success():
         ctx.output.success('Magic Payments installed.');

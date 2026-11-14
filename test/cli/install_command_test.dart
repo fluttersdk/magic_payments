@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 import 'package:magic_payments/src/cli/commands/install_command.dart';
 import 'package:test/test.dart';
 
@@ -30,11 +30,11 @@ Map<String, dynamic> _options([Map<String, dynamic> overrides = const {}]) =>
       ...overrides,
     };
 
-ArtisanContext _ctx(
+DowelContext _ctx(
   InstallCommand command, [
   Map<String, dynamic> over = const {},
 ]) {
-  return ArtisanContext.bare(
+  return DowelContext.bare(
     MapInput(_options(over), signature: command.parsedSignature),
     BufferedOutput(),
   );
@@ -60,7 +60,7 @@ dependencies:
 
     // The manifest installer resolves the plugin's own assets/stubs/ through
     // the CONSUMER's package config, so a fixture without this file silently
-    // falls back to the artisan substrate's stub search paths and the publish
+    // falls back to the dowel substrate's stub search paths and the publish
     // fails on a stub that was never missing.
     Directory(at('.dart_tool')).createSync(recursive: true);
     File(at('.dart_tool/package_config.json')).writeAsStringSync('''
@@ -110,7 +110,7 @@ void main() async {
 
   group('InstallCommand surface', () {
     test('is an install command carrying the four standard flags', () {
-      expect(command, isA<ArtisanInstallCommand>());
+      expect(command, isA<DowelInstallCommand>());
       expect(command.signature, contains('payments:install'));
       expect(command.signature, contains('--force'));
       expect(command.signature, contains('--dry-run'));
@@ -244,9 +244,8 @@ void main() async {
 
     test('a hand-edited config is refused without --force', () async {
       expect(await command.handle(_ctx(command)), 0);
-      File(
-        at('lib/config/payments.dart'),
-      ).writeAsStringSync('// the operator changed this by hand\n');
+      File(at('lib/config/payments.dart'))
+          .writeAsStringSync('// the operator changed this by hand\n');
 
       final second = _PinnedInstallCommand(temp.path);
       expect(await second.handle(_ctx(second)), 1);

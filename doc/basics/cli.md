@@ -12,7 +12,7 @@
 
 ## <a name="overview"></a>Overview
 
-Magic Payments ships a CLI on top of `fluttersdk_artisan`, the same substrate `magic_notifications`
+Magic Payments ships a CLI on top of `dowel`, the same substrate `magic_notifications`
 and `magic_social_auth` use. Every command runs through:
 
 ```bash
@@ -104,7 +104,7 @@ same code as the human report: 0 when nothing is an `error`, 1 otherwise.
   "ok": false,
   "checks": [
     {"id": "dependency_declared", "status": "ok", "message": "magic_payments is declared in pubspec.yaml"},
-    {"id": "config_factory_wired", "status": "error", "message": "lib/main.dart does not pass paymentsConfig to configFactories", "fix": "run `dart run <app>:artisan payments:install`"},
+    {"id": "config_factory_wired", "status": "error", "message": "lib/main.dart does not pass paymentsConfig to configFactories", "fix": "run `dart run magic:dowel payments:install`"},
     {"id": "store_rail_key", "status": "warn", "message": "payments.revenuecat.public_sdk_key: blank", "fix": "set payments.revenuecat.public_sdk_key in lib/config/payments.dart; ..."}
   ]
 }

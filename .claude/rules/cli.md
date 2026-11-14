@@ -7,7 +7,7 @@ paths:
 
 # The `payments:*` CLI
 
-Three commands on `fluttersdk_artisan`, contributed by `PaymentsArtisanProvider`: `payments:install`
+Three commands on `dowel`, contributed by `MagicPaymentsDowelProvider`: `payments:install`
 (one-time scaffold), `payments:configure` (change a value afterwards), `payments:doctor` (report).
 `lib/cli.dart` is a separate barrel so an app never pays for the command tree at runtime.
 
@@ -42,18 +42,18 @@ decision, never a default.
 
 ## Aliased imports
 
-`fluttersdk_artisan` exports its own toolchain `DoctorCommand` from the barrel this provider already
+`dowel` exports its own toolchain `DoctorCommand` from the barrel this provider already
 imports, so `commands/doctor_command.dart` is imported with a prefix. Nothing warns about the clash
-until the file is written, and a `hide` on the artisan barrel would push the same problem onto whoever
+until the file is written, and a `hide` on the dowel barrel would push the same problem onto whoever
 adds the next import. Keep the prefix.
 
 ## Command shape
 
 Each command owns one file under `lib/src/cli/commands/` and declares `signature` and `description`.
-What else it declares depends on the base: `configure` and `doctor` extend `ArtisanCommand` and add
-`boot`; `install` extends `ArtisanInstallCommand`, adds `pluginName`, and inherits `boot` from there.
+What else it declares depends on the base: `configure` and `doctor` extend `DowelCommand` and add
+`boot`; `install` extends `DowelInstallCommand`, adds `pluginName`, and inherits `boot` from there.
 
-**The command name and its flags both live in `signature`**, in the DSL `fluttersdk_artisan` parses.
+**The command name and its flags both live in `signature`**, in the DSL `dowel` parses.
 There is no `name` getter and no `configure(ArgParser)` hook; do not reach for either, they are the
 shape a sibling package uses:
 
@@ -69,8 +69,8 @@ A flag is read back through the context rather than a parser object: `ctx.input.
 String?`, and `ctx.input.option('show') as bool? ?? false` for a boolean. The cast sits at the call
 site because `option` is untyped.
 
-`configure` and `doctor` declare `CommandBoot.none`; `install` extends `ArtisanInstallCommand`, which
-declares the same (`artisan/lib/src/installer/artisan_install_command.dart:79`). Nothing here runs
+`configure` and `doctor` declare `CommandBoot.none`; `install` extends `DowelInstallCommand`, which
+declares the same (`dowel/lib/src/installer/dowel_install_command.dart`). Nothing here runs
 `connected`, because no `payments:*` command talks to a running app, and one that wanted to would be
 reading state the backend already owns.
 

@@ -1,7 +1,7 @@
 # Magic Payments Plugin
 
 Multi-rail billing for the Magic Framework: one entitlement contract over Stripe on the web and store
-in-app purchase on iOS and Android. A `magic` plugin, with its CLI on `fluttersdk_artisan`.
+in-app purchase on iOS and Android. A `magic` plugin, with its CLI on `dowel`.
 
 `0.0.1` went to pub.dev on 2026-08-25, so `magic_starter` names this package as an ordinary hosted
 dependency and no local override is needed to publish downstream. It started as a scaffold with empty

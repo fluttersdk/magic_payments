@@ -38,14 +38,11 @@ void main() {
       });
     });
 
-    test(
-      'answers null for an unknown type rather than guessing what a customer bought',
-      () {
-        expect(ProductType.fromWire('weird'), isNull);
-        expect(ProductType.fromWire(null), isNull);
-        expect(ProductType.fromWire('nonConsumable'), isNull);
-        expect(ProductType.fromWire('Subscription'), isNull);
-      },
-    );
+    test('answers null for an unknown type rather than guessing what a customer bought', () {
+      expect(ProductType.fromWire('weird'), isNull);
+      expect(ProductType.fromWire(null), isNull);
+      expect(ProductType.fromWire('nonConsumable'), isNull);
+      expect(ProductType.fromWire('Subscription'), isNull);
+    });
   });
 }

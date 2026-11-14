@@ -1,20 +1,20 @@
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 
 import 'commands/configure_command.dart';
-// ALIASED, and not by preference. `fluttersdk_artisan` exports its own
+// ALIASED, and not by preference. `dowel` exports its own
 // toolchain `DoctorCommand` from the same barrel imported above, so an
 // unprefixed import of this file makes every mention of `DoctorCommand` below
 // ambiguous. Nothing warns about it until the file is written, and a `hide` on
-// the artisan barrel would push the same problem onto whoever adds the next
+// the dowel barrel would push the same problem onto whoever adds the next
 // import here.
 import 'commands/doctor_command.dart' as payments_doctor;
 import 'commands/install_command.dart';
 
-/// The `fluttersdk_artisan` provider for Magic Payments.
+/// The `dowel` provider for Magic Payments.
 ///
-/// Contributes the three `payments:*` commands to the host application. A
-/// consumer registers it beside the other plugin providers in its
-/// `artisan.providers` config.
+/// Contributes the three `payments:*` commands to the host application.
+/// `plugin:install` registers it beside the other plugin providers under
+/// `.dowel/plugins.json`.
 ///
 /// ## The MCP surface is one tool, and that is a policy
 ///
@@ -24,12 +24,12 @@ import 'commands/install_command.dart';
 /// agent that can rewrite `lib/config/app.dart` and `lib/main.dart` without a
 /// human at the keyboard is a different risk from one that can read a report.
 /// Adding either here is a policy change, not a convenience.
-class PaymentsArtisanProvider extends ArtisanServiceProvider {
+class MagicPaymentsDowelProvider extends DowelServiceProvider {
   @override
   String get providerName => 'payments';
 
   @override
-  List<ArtisanCommand> commands() => <ArtisanCommand>[
+  List<DowelCommand> commands() => <DowelCommand>[
     InstallCommand(),
     ConfigureCommand(),
     payments_doctor.DoctorCommand(),
@@ -75,7 +75,7 @@ class PaymentsArtisanProvider extends ArtisanServiceProvider {
           },
         },
       },
-      extensionMethod: 'artisan:payments:doctor',
+      extensionMethod: 'dowel:payments:doctor',
     ),
   ];
 }

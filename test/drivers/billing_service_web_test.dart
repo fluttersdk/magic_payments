@@ -247,30 +247,26 @@ void main() {
       },
     );
 
-    test(
-      'getUsage reads GET /billing/usage from the FLAT body, keeping an unlimited cap null',
-      () async {
-        network = Http.fake({'/billing/usage': Http.response(_usageBody)});
+    test('getUsage reads GET /billing/usage from the FLAT body, keeping an unlimited cap null', () async {
+      network = Http.fake({'/billing/usage': Http.response(_usageBody)});
 
-        final List<UsageStat> usage = await const BillingServiceWeb()
-            .getUsage();
+      final List<UsageStat> usage = await const BillingServiceWeb().getUsage();
 
-        network.assertSent(
-          (MagicRequest request) =>
-              request.method == 'GET' && request.url == '/billing/usage',
-        );
-        expect(usage.map((UsageStat stat) => stat.key), [
-          'monitors',
-          'responders',
-          'checks_this_month',
-        ]);
-        expect(usage.first.used, 3);
-        expect(usage.first.limit, 20);
-        // Unlimited must stay null: read as zero it would gate a paying customer
-        // out of what they bought.
-        expect(usage.last.limit, isNull);
-      },
-    );
+      network.assertSent(
+        (MagicRequest request) =>
+            request.method == 'GET' && request.url == '/billing/usage',
+      );
+      expect(usage.map((UsageStat stat) => stat.key), [
+        'monitors',
+        'responders',
+        'checks_this_month',
+      ]);
+      expect(usage.first.used, 3);
+      expect(usage.first.limit, 20);
+      // Unlimited must stay null: read as zero it would gate a paying customer
+      // out of what they bought.
+      expect(usage.last.limit, isNull);
+    });
 
     test(
       'getInvoices reads GET /billing/invoices and keeps the next cursor',
@@ -293,25 +289,18 @@ void main() {
       },
     );
 
-    test(
-      'getInvoices sends the cursor as a query parameter, and omits it on the first page',
-      () async {
-        network = Http.fake({
-          '/billing/invoices': Http.response(_invoicesBody),
-        });
+    test('getInvoices sends the cursor as a query parameter, and omits it on the first page', () async {
+      network = Http.fake({'/billing/invoices': Http.response(_invoicesBody)});
 
-        await const BillingServiceWeb().getInvoices();
-        await const BillingServiceWeb().getInvoices(cursor: 'page-two');
+      await const BillingServiceWeb().getInvoices();
+      await const BillingServiceWeb().getInvoices(cursor: 'page-two');
 
-        // Two separate guards, so a fix to one cannot hide the other: an absent
-        // cursor must not send an empty parameter, and a present one must ride
-        // the query rather than the path.
-        expect(network.recorded.first.$1.queryParameters, isNull);
-        expect(network.recorded.last.$1.queryParameters, {
-          'cursor': 'page-two',
-        });
-      },
-    );
+      // Two separate guards, so a fix to one cannot hide the other: an absent
+      // cursor must not send an empty parameter, and a present one must ride
+      // the query rather than the path.
+      expect(network.recorded.first.$1.queryParameters, isNull);
+      expect(network.recorded.last.$1.queryParameters, {'cursor': 'page-two'});
+    });
 
     test(
       'getPaymentMethod reads GET /billing/payment-method from the FLAT body',
@@ -364,46 +353,41 @@ void main() {
   });
 
   group('BillingServiceWeb checkout', () {
-    test(
-      'checkout posts the product key and both return URLs, then opens the hosted page in an in-app web view',
-      () async {
-        network = Http.fake({
-          '/billing/checkout': Http.response(_checkoutBody),
-        });
+    test('checkout posts the product key and both return URLs, then opens the hosted page in an in-app web view', () async {
+      network = Http.fake({'/billing/checkout': Http.response(_checkoutBody)});
 
-        final BillingCheckoutSession session = await const BillingServiceWeb()
-            .checkout(
-              productKey: 'pro_annual',
-              successUrl: 'https://example.com/billing?checkout=success',
-              cancelUrl: 'https://example.com/billing?checkout=cancel',
-            );
+      final BillingCheckoutSession session = await const BillingServiceWeb()
+          .checkout(
+            productKey: 'pro_annual',
+            successUrl: 'https://example.com/billing?checkout=success',
+            cancelUrl: 'https://example.com/billing?checkout=cancel',
+          );
 
-        network.assertSent(
-          (MagicRequest request) =>
-              request.method == 'POST' && request.url == '/billing/checkout',
-        );
-        // The WHOLE body, with snake_case keys because the producer validates
-        // them by that name. Asserted whole so neither a leftover `plan` nor a
-        // leftover `cycle` can ride along: the product key alone names the
-        // price, and a second key that disagreed with it would let the backend
-        // pick which one to charge.
-        expect(network.recorded.single.$1.data as Map<String, dynamic>, {
-          'product': 'pro_annual',
-          'success_url': 'https://example.com/billing?checkout=success',
-          'cancel_url': 'https://example.com/billing?checkout=cancel',
-        });
-        expect(session.checkoutUrl, _checkoutBody['checkout_url']);
-        expect(session.sessionId, 'cs_test_a1b2c3');
-        // In-app, not external: an external browser leaves the app, and the
-        // success URL that brings the customer back would land in Safari.
-        expect(launcher.launched, hasLength(1));
-        expect(
-          launcher.launched.single.$1,
-          Uri.parse(_checkoutBody['checkout_url'] as String),
-        );
-        expect(launcher.launched.single.$2, LaunchMode.inAppWebView);
-      },
-    );
+      network.assertSent(
+        (MagicRequest request) =>
+            request.method == 'POST' && request.url == '/billing/checkout',
+      );
+      // The WHOLE body, with snake_case keys because the producer validates
+      // them by that name. Asserted whole so neither a leftover `plan` nor a
+      // leftover `cycle` can ride along: the product key alone names the
+      // price, and a second key that disagreed with it would let the backend
+      // pick which one to charge.
+      expect(network.recorded.single.$1.data as Map<String, dynamic>, {
+        'product': 'pro_annual',
+        'success_url': 'https://example.com/billing?checkout=success',
+        'cancel_url': 'https://example.com/billing?checkout=cancel',
+      });
+      expect(session.checkoutUrl, _checkoutBody['checkout_url']);
+      expect(session.sessionId, 'cs_test_a1b2c3');
+      // In-app, not external: an external browser leaves the app, and the
+      // success URL that brings the customer back would land in Safari.
+      expect(launcher.launched, hasLength(1));
+      expect(
+        launcher.launched.single.$1,
+        Uri.parse(_checkoutBody['checkout_url'] as String),
+      );
+      expect(launcher.launched.single.$2, LaunchMode.inAppWebView);
+    });
 
     test(
       'a refused checkout throws the producer message and opens nothing',
@@ -430,27 +414,24 @@ void main() {
       },
     );
 
-    test(
-      'a malformed checkout body throws instead of opening a blank tab',
-      () async {
-        // Its own test rather than an extra assertion on the refusal above: the
-        // two guards sit on one outcome, and a single assertion would still pass
-        // with either of them deleted.
-        network = Http.fake({
-          '/billing/checkout': Http.response('not an object'),
-        });
+    test('a malformed checkout body throws instead of opening a blank tab', () async {
+      // Its own test rather than an extra assertion on the refusal above: the
+      // two guards sit on one outcome, and a single assertion would still pass
+      // with either of them deleted.
+      network = Http.fake({
+        '/billing/checkout': Http.response('not an object'),
+      });
 
-        await expectLater(
-          const BillingServiceWeb().checkout(
-            productKey: 'pro_annual',
-            successUrl: 'https://example.com/ok',
-            cancelUrl: 'https://example.com/no',
-          ),
-          throwsA(isA<BillingException>()),
-        );
-        expect(launcher.launched, isEmpty);
-      },
-    );
+      await expectLater(
+        const BillingServiceWeb().checkout(
+          productKey: 'pro_annual',
+          successUrl: 'https://example.com/ok',
+          cancelUrl: 'https://example.com/no',
+        ),
+        throwsA(isA<BillingException>()),
+      );
+      expect(launcher.launched, isEmpty);
+    });
   });
 
   group('BillingServiceWeb names a product the backend will not sell', () {
@@ -693,59 +674,50 @@ void main() {
   });
 
   group('BillingServiceWeb openPortal', () {
-    test(
-      'openPortal sends the return URL as a query parameter and opens the minted URL',
-      () async {
-        network = Http.fake({'/billing/portal': Http.response(_portalBody)});
+    test('openPortal sends the return URL as a query parameter and opens the minted URL', () async {
+      network = Http.fake({'/billing/portal': Http.response(_portalBody)});
 
-        final String url = await const BillingServiceWeb().openPortal(
-          returnUrl: 'https://example.com/billing',
-        );
+      final String url = await const BillingServiceWeb().openPortal(
+        returnUrl: 'https://example.com/billing',
+      );
 
-        network.assertSent(
-          (MagicRequest request) =>
-              request.method == 'GET' && request.url == '/billing/portal',
-        );
-        expect(network.recorded.single.$1.queryParameters, {
-          'return_url': 'https://example.com/billing',
-        });
-        // Returned as well as opened, because the URL is single-use: a caller
-        // that wants the portal again asks for a new one.
-        expect(url, _portalBody['portal_url']);
-        expect(launcher.launched.single.$1, Uri.parse(url));
-        expect(launcher.launched.single.$2, LaunchMode.inAppWebView);
-      },
-    );
+      network.assertSent(
+        (MagicRequest request) =>
+            request.method == 'GET' && request.url == '/billing/portal',
+      );
+      expect(network.recorded.single.$1.queryParameters, {
+        'return_url': 'https://example.com/billing',
+      });
+      // Returned as well as opened, because the URL is single-use: a caller
+      // that wants the portal again asks for a new one.
+      expect(url, _portalBody['portal_url']);
+      expect(launcher.launched.single.$1, Uri.parse(url));
+      expect(launcher.launched.single.$2, LaunchMode.inAppWebView);
+    });
 
-    test(
-      'openPortal omits the query parameter entirely when no return URL is given',
-      () async {
-        network = Http.fake({'/billing/portal': Http.response(_portalBody)});
+    test('openPortal omits the query parameter entirely when no return URL is given', () async {
+      network = Http.fake({'/billing/portal': Http.response(_portalBody)});
 
-        await const BillingServiceWeb().openPortal();
+      await const BillingServiceWeb().openPortal();
 
-        expect(network.recorded.single.$1.queryParameters, isNull);
-      },
-    );
+      expect(network.recorded.single.$1.queryParameters, isNull);
+    });
 
-    test(
-      'an empty portal URL throws instead of opening nothing successfully',
-      () async {
-        // The producer soft-fails nothing on this endpoint, but Cashier answers a
-        // customer-less team with a 409 and a malformed body is what a proxy in
-        // front of it produces. An empty string would launch nothing and return
-        // success.
-        network = Http.fake({
-          '/billing/portal': Http.response({'portal_url': ''}),
-        });
+    test('an empty portal URL throws instead of opening nothing successfully', () async {
+      // The producer soft-fails nothing on this endpoint, but Cashier answers a
+      // customer-less team with a 409 and a malformed body is what a proxy in
+      // front of it produces. An empty string would launch nothing and return
+      // success.
+      network = Http.fake({
+        '/billing/portal': Http.response({'portal_url': ''}),
+      });
 
-        await expectLater(
-          const BillingServiceWeb().openPortal(),
-          throwsA(isA<BillingException>()),
-        );
-        expect(launcher.launched, isEmpty);
-      },
-    );
+      await expectLater(
+        const BillingServiceWeb().openPortal(),
+        throwsA(isA<BillingException>()),
+      );
+      expect(launcher.launched, isEmpty);
+    });
 
     test('a portal body with no portal_url key at all throws', () async {
       network = Http.fake({

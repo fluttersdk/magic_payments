@@ -81,7 +81,7 @@ body:
     id: plugin-version
     attributes:
       label: Magic Payments Version
-      placeholder: "0.0.12"
+      placeholder: "0.1.0"
     validations:
       required: true
 

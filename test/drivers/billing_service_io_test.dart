@@ -182,55 +182,46 @@ void main() {
       },
     );
 
-    test(
-      'getPlans reads GET /billing/plans and hands every row over undecoded',
-      () async {
-        network = Http.fake({'/billing/plans': Http.response(_plansBody)});
+    test('getPlans reads GET /billing/plans and hands every row over undecoded', () async {
+      network = Http.fake({'/billing/plans': Http.response(_plansBody)});
 
-        final List<Map<String, dynamic>> plans = await const BillingServiceIo()
-            .getPlans();
+      final List<Map<String, dynamic>> plans = await const BillingServiceIo()
+          .getPlans();
 
-        network.assertSent(
-          (MagicRequest request) => request.url == '/billing/plans',
-        );
-        expect(plans, hasLength(2));
-        expect(plans.first['id'], 'free');
-        // The row arrives whole, nested keys included: dropping the half of a row
-        // this package has no model for is exactly what returning raw maps avoids.
-        expect(plans.first['limits'], {
-          'monitors': 1,
-          'responders': 1,
-          'regions': 1,
-        });
-        expect(plans.last['features'], [
-          '20 monitors',
-          'unlimited status pages',
-        ]);
-      },
-    );
+      network.assertSent(
+        (MagicRequest request) => request.url == '/billing/plans',
+      );
+      expect(plans, hasLength(2));
+      expect(plans.first['id'], 'free');
+      // The row arrives whole, nested keys included: dropping the half of a row
+      // this package has no model for is exactly what returning raw maps avoids.
+      expect(plans.first['limits'], {
+        'monitors': 1,
+        'responders': 1,
+        'regions': 1,
+      });
+      expect(plans.last['features'], ['20 monitors', 'unlimited status pages']);
+    });
 
-    test(
-      'getUsage reads GET /billing/usage from the FLAT body, keeping an unlimited cap null',
-      () async {
-        network = Http.fake({'/billing/usage': Http.response(_usageBody)});
+    test('getUsage reads GET /billing/usage from the FLAT body, keeping an unlimited cap null', () async {
+      network = Http.fake({'/billing/usage': Http.response(_usageBody)});
 
-        final List<UsageStat> usage = await const BillingServiceIo().getUsage();
+      final List<UsageStat> usage = await const BillingServiceIo().getUsage();
 
-        network.assertSent(
-          (MagicRequest request) => request.url == '/billing/usage',
-        );
-        expect(usage.map((UsageStat stat) => stat.key), [
-          'monitors',
-          'responders',
-          'checks_this_month',
-        ]);
-        expect(usage.first.used, 3);
-        expect(usage.first.limit, 20);
-        // Unlimited must stay null: read as zero it would gate a paying customer
-        // out of what they bought.
-        expect(usage.last.limit, isNull);
-      },
-    );
+      network.assertSent(
+        (MagicRequest request) => request.url == '/billing/usage',
+      );
+      expect(usage.map((UsageStat stat) => stat.key), [
+        'monitors',
+        'responders',
+        'checks_this_month',
+      ]);
+      expect(usage.first.used, 3);
+      expect(usage.first.limit, 20);
+      // Unlimited must stay null: read as zero it would gate a paying customer
+      // out of what they bought.
+      expect(usage.last.limit, isNull);
+    });
 
     test(
       'getInvoices reads GET /billing/invoices and keeps the next cursor',
@@ -253,25 +244,18 @@ void main() {
       },
     );
 
-    test(
-      'getInvoices sends the cursor as a query parameter, and omits it on the first page',
-      () async {
-        network = Http.fake({
-          '/billing/invoices': Http.response(_invoicesBody),
-        });
+    test('getInvoices sends the cursor as a query parameter, and omits it on the first page', () async {
+      network = Http.fake({'/billing/invoices': Http.response(_invoicesBody)});
 
-        await const BillingServiceIo().getInvoices();
-        await const BillingServiceIo().getInvoices(cursor: 'page-two');
+      await const BillingServiceIo().getInvoices();
+      await const BillingServiceIo().getInvoices(cursor: 'page-two');
 
-        // Two separate guards, so a fix to one cannot hide the other: an absent
-        // cursor must not send an empty parameter, and a present one must ride the
-        // query rather than the path.
-        expect(network.recorded.first.$1.queryParameters, isNull);
-        expect(network.recorded.last.$1.queryParameters, {
-          'cursor': 'page-two',
-        });
-      },
-    );
+      // Two separate guards, so a fix to one cannot hide the other: an absent
+      // cursor must not send an empty parameter, and a present one must ride the
+      // query rather than the path.
+      expect(network.recorded.first.$1.queryParameters, isNull);
+      expect(network.recorded.last.$1.queryParameters, {'cursor': 'page-two'});
+    });
 
     test(
       'getPaymentMethod reads GET /billing/payment-method from the FLAT body',
@@ -325,40 +309,34 @@ void main() {
       },
     );
 
-    test(
-      'a non-2xx entitlement response throws BillingException carrying the producer message',
-      () async {
-        network = Http.fake({
-          '/billing': Http.response({'message': 'Team not found.'}, 404),
-        });
+    test('a non-2xx entitlement response throws BillingException carrying the producer message', () async {
+      network = Http.fake({
+        '/billing': Http.response({'message': 'Team not found.'}, 404),
+      });
 
-        await expectLater(
-          const BillingServiceIo().currentEntitlement(),
-          throwsA(
-            isA<BillingException>().having(
-              (BillingException error) => error.message,
-              'message',
-              'Team not found.',
-            ),
+      await expectLater(
+        const BillingServiceIo().currentEntitlement(),
+        throwsA(
+          isA<BillingException>().having(
+            (BillingException error) => error.message,
+            'message',
+            'Team not found.',
           ),
-        );
-        network.assertSentCount(1);
-      },
-    );
+        ),
+      );
+      network.assertSentCount(1);
+    });
 
-    test(
-      'a malformed entitlement payload throws BillingException rather than a cast error',
-      () async {
-        network = Http.fake({
-          '/billing': Http.response({'data': 'nonsense'}),
-        });
+    test('a malformed entitlement payload throws BillingException rather than a cast error', () async {
+      network = Http.fake({
+        '/billing': Http.response({'data': 'nonsense'}),
+      });
 
-        await expectLater(
-          const BillingServiceIo().currentEntitlement(),
-          throwsA(isA<BillingException>()),
-        );
-      },
-    );
+      await expectLater(
+        const BillingServiceIo().currentEntitlement(),
+        throwsA(isA<BillingException>()),
+      );
+    });
 
     test('no read throws for want of a platform', () async {
       Http.fake({
@@ -450,21 +428,18 @@ void main() {
       ]);
     });
 
-    test(
-      'identify is reachable through the contract, not only on an implementation',
-      () async {
-        // Step 30 binds a team switch to the store rail through this interface. A
-        // member that existed only on the RevenueCat class would be a member that
-        // binding cannot reach, which is why the test types the variable as the
-        // contract.
-        final _RecordingStoreRail rail = _RecordingStoreRail();
-        final StoreBillingService contract = rail;
+    test('identify is reachable through the contract, not only on an implementation', () async {
+      // Step 30 binds a team switch to the store rail through this interface. A
+      // member that existed only on the RevenueCat class would be a member that
+      // binding cannot reach, which is why the test types the variable as the
+      // contract.
+      final _RecordingStoreRail rail = _RecordingStoreRail();
+      final StoreBillingService contract = rail;
 
-        await contract.identify('team_7');
+      await contract.identify('team_7');
 
-        expect(rail.identified, ['team_7']);
-      },
-    );
+      expect(rail.identified, ['team_7']);
+    });
 
     test(
       'the contract answers a purchase with whether the entitlement changed',

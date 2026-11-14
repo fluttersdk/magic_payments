@@ -290,11 +290,12 @@ void main() {
 
   group('BillingCheckoutSession.fromMap', () {
     test('decodes the checkout endpoint\'s two keys', () {
-      final BillingCheckoutSession session =
-          BillingCheckoutSession.fromMap(const {
-            'checkout_url': 'https://checkout.stripe.com/c/pay/cs_test_1',
-            'session_id': 'cs_test_1',
-          });
+      final BillingCheckoutSession session = BillingCheckoutSession.fromMap(
+        const {
+          'checkout_url': 'https://checkout.stripe.com/c/pay/cs_test_1',
+          'session_id': 'cs_test_1',
+        },
+      );
 
       expect(
         session.checkoutUrl,
