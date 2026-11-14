@@ -30,14 +30,14 @@ updates:
       include: scope
     groups:
       # The sibling packages this one is built on: magic and
-      # fluttersdk_artisan. They move together and they move often, so a
+      # dowel. They move together and they move often, so a
       # separate bucket keeps a routine sibling bump out of the third-party
       # review.
       fluttersdk:
         patterns:
           - magic
           - magic_*
-          - fluttersdk_*
+          - dowel
         update-types:
           - minor
           - patch
@@ -47,7 +47,7 @@ updates:
         exclude-patterns:
           - magic
           - magic_*
-          - fluttersdk_*
+          - dowel
         update-types:
           - minor
           - patch

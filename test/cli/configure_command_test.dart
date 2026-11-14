@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:fluttersdk_artisan/artisan.dart';
+import 'package:dowel/dowel.dart';
 import 'package:magic_payments/src/cli/commands/configure_command.dart';
 import 'package:test/test.dart';
 
@@ -25,7 +25,7 @@ void main() {
   Future<(int, String)> run({String? driver, bool show = false}) async {
     final output = BufferedOutput();
     final code = await command.handle(
-      ArtisanContext.bare(
+      DowelContext.bare(
         MapInput(<String, dynamic>{
           // Null-aware element: omitted entirely when no driver is passed, so a
           // `--show`-only run does not present the flag as an empty string.
@@ -60,32 +60,28 @@ void main() {
   tearDown(() => temp.deleteSync(recursive: true));
 
   group('payments:configure refuses what the runtime will not serve', () {
-    test(
-      'a mode outside the served set is rejected and nothing is written',
-      () async {
-        // The gap this closes: the command used to write any string it was given,
-        // so an operator naming a rail got a success message, a green
-        // `payments:doctor`, and an error in the runtime logs. That pairing is
-        // worse than either half alone, because the CLI said the change landed.
-        writeInstalledConfig();
-        final String before = File(
-          at('lib/config/payments.dart'),
-        ).readAsStringSync();
+    test('a mode outside the served set is rejected and nothing is written', () async {
+      // The gap this closes: the command used to write any string it was given,
+      // so an operator naming a rail got a success message, a green
+      // `payments:doctor`, and an error in the runtime logs. That pairing is
+      // worse than either half alone, because the CLI said the change landed.
+      writeInstalledConfig();
+      final String before = File(at('lib/config/payments.dart'))
+          .readAsStringSync();
 
-        final (int code, String out) = await run(driver: 'revenuecat');
+      final (int code, String out) = await run(driver: 'revenuecat');
 
-        expect(code, 1);
-        expect(out, contains('revenuecat'));
-        // The message has to name the real override path, or an operator who was
-        // refused has nowhere to go.
-        expect(out, contains('Payments.extend'));
-        expect(
-          File(at('lib/config/payments.dart')).readAsStringSync(),
-          before,
-          reason: 'a refused mode must leave the config byte-identical',
-        );
-      },
-    );
+      expect(code, 1);
+      expect(out, contains('revenuecat'));
+      // The message has to name the real override path, or an operator who was
+      // refused has nowhere to go.
+      expect(out, contains('Payments.extend'));
+      expect(
+        File(at('lib/config/payments.dart')).readAsStringSync(),
+        before,
+        reason: 'a refused mode must leave the config byte-identical',
+      );
+    });
 
     test('the one served mode is accepted', () async {
       // The other side of the same guard. Without this, a refusal test alone
@@ -106,9 +102,8 @@ void main() {
 
     test('an empty mode is refused before it reaches the file', () async {
       writeInstalledConfig();
-      final String before = File(
-        at('lib/config/payments.dart'),
-      ).readAsStringSync();
+      final String before = File(at('lib/config/payments.dart'))
+          .readAsStringSync();
 
       final (int code, String out) = await run(driver: '');
 

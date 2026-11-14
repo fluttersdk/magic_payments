@@ -9,10 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 /// bumps the minor when major is 0, so `^0.0.8` means `>=0.0.8 <0.1.0` and a
 /// solver is free to hand back `0.0.13`. What a caret cannot do is reach BELOW
 /// itself, which is the whole reason these floors are asserted: a sibling
-/// plugin still declares `fluttersdk_artisan: ^0.0.8` against a published
-/// `0.0.13`, and copying that stale caret here would let a solver satisfy this
-/// package with a five-release-old CLI whenever something else in the graph
-/// wanted one. Likewise the `environment` block is inherited from `magic`
+/// plugin once declared `dowel: ^0.0.8` against a published `0.0.13`, and
+/// copying that stale caret here would let a solver satisfy this package with a
+/// five-release-old CLI whenever something else in the graph wanted one. Likewise the `environment` block is inherited from `magic`
 /// rather than chosen, and copying a sibling's older block would claim support
 /// this package cannot honour.
 ///
@@ -20,7 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// It does not, and the claim is corrected here rather than deleted because it
 /// travelled: it was read as fact and cost a downstream plan a blocker that
 /// did not exist. Measured with a scratch package reproducing the published
-/// graph, where `^0.0.9` resolved artisan `0.0.13` and `^0.0.2` resolved
+/// graph, where `^0.0.9` resolved the CLI `0.0.13` and `^0.0.2` resolved
 /// notifications `0.0.3`.
 ///
 /// A test rather than a comment because a comment cannot fail.
@@ -33,25 +32,25 @@ void main() {
 
   group('pubspec floors', () {
     test('the SDK constraints are inherited from magic, not from a sibling', () {
-      expect(pubspec, contains('sdk: ">=3.11.0 <4.0.0"'));
-      expect(pubspec, contains('flutter: ">=3.41.0"'));
+      expect(pubspec, contains('sdk: ">=3.13.0 <4.0.0"'));
+      expect(pubspec, contains('flutter: ">=3.47.0"'));
 
       // The block a sibling plugin declares. Copying it is the specific error.
       expect(pubspec, isNot(contains('sdk: ">=3.6.0 <4.0.0"')));
       expect(pubspec, isNot(contains('flutter: ">=3.27.0"')));
     });
 
-    test('the artisan floor is the published patch, not a stale one', () {
-      expect(pubspec, contains('fluttersdk_artisan: ^0.0.20'));
-      expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.8')));
-      expect(pubspec, isNot(contains('fluttersdk_artisan: ^0.0.13')));
+    test('the dowel floor is the published patch, not a stale one', () {
+      expect(pubspec, contains('dowel: ^0.0.21'));
+      expect(pubspec, isNot(contains('dowel: ^0.0.20')));
+      expect(pubspec, isNot(contains('dowel: ^0.0.8')));
+      expect(pubspec, isNot(contains('dowel: ^0.0.13')));
     });
 
-    // 0.0.6 is what this package's own API needs from magic; 0.0.29 is the
-    // release the 2026-10-14 batch verified it against, and the floor names
-    // that one.
+    // 0.1.0 is the release that moved the optional layers out of core, and the
+    // floor names the release this package is verified against.
     test('magic is pinned to the release this package is verified against', () {
-      expect(pubspec, contains('magic: ^0.0.29'));
+      expect(pubspec, contains('magic: ^0.1.0'));
     });
   });
 }

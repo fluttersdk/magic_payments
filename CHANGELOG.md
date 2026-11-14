@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+## 0.1.0
+
+### Changed
+
+- **BREAKING: the CLI moved from `fluttersdk_artisan` to `dowel`.** The provider is now `MagicPaymentsDowelProvider` (was `PaymentsArtisanProvider`), exported from `package:magic_payments/cli.dart`, and its MCP tool routes at `dowel:payments:doctor`. Re-run `dart run magic:dowel plugin:install magic_payments` to register it under `.dowel/`. (`lib/cli.dart`, `lib/src/cli/`, `install.yaml`, `pubspec.yaml`)
+- **The SDK floor is Dart 3.13 and Flutter 3.47.** Inherited from `magic` 0.1.0. (`pubspec.yaml`, `test/pubspec_floors_test.dart`)
+- **Direct dependencies move to their latest releases.** `purchases_flutter` `^10.15.1` to `^11.0.2` (the Dart API this package calls is unchanged; the major raises the Android native floors to Kotlin 2.1 and Play Billing 9), `dowel` `^0.0.21`, `test` `^1.25.0` to `^1.32.0`. (`pubspec.yaml`, `test/pubspec_floors_test.dart`)
+
 ## 0.0.12
 
 ### Changed

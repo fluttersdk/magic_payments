@@ -4,8 +4,8 @@ Multi-rail billing for the [Magic Framework](https://github.com/fluttersdk/magic
 contract over Stripe on the web and store in-app purchase on iOS and Android.
 
 > [!NOTE]
-> The public API is still settling ahead of `0.1.0`. Pin an exact version
-> (`magic_payments: 0.0.12`) if you depend on it before then.
+> The public API is still settling during the `0.1.x` line. Pin an exact version
+> (`magic_payments: 0.1.0`) if you depend on it.
 
 ## Why it exists
 
@@ -50,15 +50,15 @@ renders at all, rather than rendering one that fails when tapped.
 
 ```yaml
 dependencies:
-  magic_payments: ^0.0.12
+  magic_payments: ^0.1.0
 ```
 
 ```bash
-# Register the plugin's artisan provider with the app dispatcher (once)
-dart run magic:artisan plugin:install magic_payments
+# Register the plugin's dowel provider with the app dispatcher (once)
+dart run magic:dowel plugin:install magic_payments
 
 # Publish lib/config/payments.dart and register the config factory
-dart run magic:artisan payments:install
+dart run magic:dowel payments:install
 ```
 
 Then register the service provider in your app's config, as with any Magic plugin:
@@ -70,7 +70,7 @@ Then register the service provider in your app's config, as with any Magic plugi
 ],
 ```
 
-`dart run magic:artisan payments:doctor` reports which rails the build resolved and whether the store
+`dart run magic:dowel payments:doctor` reports which rails the build resolved and whether the store
 rail has the key it needs.
 
 ## Documentation

@@ -315,31 +315,28 @@ void main() {
       );
     });
 
-    test(
-      'a failed attribute write is a warning, not a failed identity',
-      () async {
-        // The identity WAS bound, which is all this method promises. Reporting a
-        // cosmetic dashboard write as a failure would tell a caller the paying
-        // subject is unbound and stop it offering a purchase that would work.
-        Config.set(RevenueCatStoreService.subjectLabelConfigKey, 'team');
-        final FakeLogManager log = Log.fake();
-        final _FakeStoreRail rail = _FakeStoreRail(
-          raisingOnAttributes: StateError('attribute queue full'),
-        );
+    test('a failed attribute write is a warning, not a failed identity', () async {
+      // The identity WAS bound, which is all this method promises. Reporting a
+      // cosmetic dashboard write as a failure would tell a caller the paying
+      // subject is unbound and stop it offering a purchase that would work.
+      Config.set(RevenueCatStoreService.subjectLabelConfigKey, 'team');
+      final FakeLogManager log = Log.fake();
+      final _FakeStoreRail rail = _FakeStoreRail(
+        raisingOnAttributes: StateError('attribute queue full'),
+      );
 
-        await expectLater(rail.identify(_appUserId), completes);
+      await expectLater(rail.identify(_appUserId), completes);
 
-        expect(rail.loggedIn, [_appUserId]);
-        // Deliberately handled rather than swallowed: nothing silent here.
-        expect(
-          log.entries
-              .where((FakeLogEntry entry) => entry.level == 'warning')
-              .map((FakeLogEntry entry) => entry.message),
-          hasLength(1),
-        );
-        log.assertNothingLogged('error');
-      },
-    );
+      expect(rail.loggedIn, [_appUserId]);
+      // Deliberately handled rather than swallowed: nothing silent here.
+      expect(
+        log.entries
+            .where((FakeLogEntry entry) => entry.level == 'warning')
+            .map((FakeLogEntry entry) => entry.message),
+        hasLength(1),
+      );
+      log.assertNothingLogged('error');
+    });
 
     test('a BillingException from below is rethrown unchanged', () async {
       const BillingException original = BillingException('already ours');
@@ -391,21 +388,24 @@ void main() {
       expect(rail.purchased, isEmpty);
     });
 
-    test('a customer who dismisses the sheet is a false, not a failure', () async {
-      // The rail reports a cancellation as a PlatformException whose code is the
-      // ORDINAL of its error enum, which is how `PurchasesErrorHelper` reads it.
-      // Derived from the enum rather than written as `'1'`, so a reordering
-      // upstream cannot leave this fixture quietly pointing at another code.
-      final _FakeStoreRail rail = _FakeStoreRail(
-        offerings: _catalogue(),
-        raisingOnPurchase: PlatformException(
-          code: PurchasesErrorCode.purchaseCancelledError.index.toString(),
-          message: 'Purchase was cancelled.',
-        ),
-      );
+    test(
+      'a customer who dismisses the sheet is a false, not a failure',
+      () async {
+        // The rail reports a cancellation as a PlatformException whose code is the
+        // ORDINAL of its error enum, which is how `PurchasesErrorHelper` reads it.
+        // Derived from the enum rather than written as `'1'`, so a reordering
+        // upstream cannot leave this fixture quietly pointing at another code.
+        final _FakeStoreRail rail = _FakeStoreRail(
+          offerings: _catalogue(),
+          raisingOnPurchase: PlatformException(
+            code: PurchasesErrorCode.purchaseCancelledError.index.toString(),
+            message: 'Purchase was cancelled.',
+          ),
+        );
 
-      expect(await rail.purchase('pro'), isFalse);
-    });
+        expect(await rail.purchase('pro'), isFalse);
+      },
+    );
 
     test('a store problem is a failure, not a dismissal', () async {
       // The other side of the same guard: every code that is not the
@@ -788,9 +788,8 @@ void main() {
           });
 
       final Map<String, IntroEligibilityStatus> answers =
-          await RevenueCatStoreService(
-            store: ManageVia.appStore,
-          ).checkIntroEligibilitySdk(<String>['pro_monthly', 'pro_annual']);
+          await RevenueCatStoreService(store: ManageVia.appStore)
+              .checkIntroEligibilitySdk(<String>['pro_monthly', 'pro_annual']);
 
       expect(calls.single.method, 'checkTrialOrIntroductoryPriceEligibility');
       expect(calls.single.arguments, <String, Object?>{
@@ -967,36 +966,33 @@ void main() {
       expect(offer.introEligible, isFalse);
     });
 
-    test(
-      'Play skips the read and treats a present intro price as eligible',
-      () async {
-        // Play only offers what the account may take, and its SDK answers unknown
-        // for everything, so asking would withhold every real trial.
-        final Offering current = _offeringOf('default', [
-          _packageJson(
-            'pro_annual',
-            'pro_sub:annual',
-            introPrice: _introPriceJson,
-          ),
-          _packageJson('pro_monthly', 'pro_sub:monthly'),
-        ]);
-        final _FakeStoreRail rail = _FakeStoreRail(
-          store: ManageVia.playStore,
-          offerings: Offerings(<String, Offering>{
-            'default': current,
-          }, current: current),
-        );
-
-        final Map<String, StoreProductOffer> offers = await rail.products([
+    test('Play skips the read and treats a present intro price as eligible', () async {
+      // Play only offers what the account may take, and its SDK answers unknown
+      // for everything, so asking would withhold every real trial.
+      final Offering current = _offeringOf('default', [
+        _packageJson(
           'pro_annual',
-          'pro_monthly',
-        ]);
+          'pro_sub:annual',
+          introPrice: _introPriceJson,
+        ),
+        _packageJson('pro_monthly', 'pro_sub:monthly'),
+      ]);
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: Offerings(<String, Offering>{
+          'default': current,
+        }, current: current),
+      );
 
-        expect(rail.eligibilityRequests, isEmpty);
-        expect(offers['pro_annual']!.introEligible, isTrue);
-        expect(offers['pro_monthly']!.introEligible, isFalse);
-      },
-    );
+      final Map<String, StoreProductOffer> offers = await rail.products([
+        'pro_annual',
+        'pro_monthly',
+      ]);
+
+      expect(rail.eligibilityRequests, isEmpty);
+      expect(offers['pro_annual']!.introEligible, isTrue);
+      expect(offers['pro_monthly']!.introEligible, isFalse);
+    });
   });
 
   group('a subscription another store manages is never bought over', () {
@@ -1374,28 +1370,25 @@ void main() {
       expect(rail.purchased, isEmpty);
     });
 
-    test(
-      'a higher tier cheaper per day is charged in full, not prorated',
-      () async {
-        // Pro monthly at 30 is 1.00 a day; business annual at 300 is 0.82 a day.
-        // Play accepts CHARGE_PRORATED_PRICE only when the price per unit of
-        // time rises, and rejects this purchase with it.
-        final _FakeStoreRail rail = _FakeStoreRail(
-          store: ManageVia.playStore,
-          offerings: _playCatalogue(
-            prices: const {'pro_monthly': 30.0, 'business_annual': 300.0},
-          ),
-          activeProducts: const ['pro_sub:monthly'],
-        );
+    test('a higher tier cheaper per day is charged in full, not prorated', () async {
+      // Pro monthly at 30 is 1.00 a day; business annual at 300 is 0.82 a day.
+      // Play accepts CHARGE_PRORATED_PRICE only when the price per unit of
+      // time rises, and rejects this purchase with it.
+      final _FakeStoreRail rail = _FakeStoreRail(
+        store: ManageVia.playStore,
+        offerings: _playCatalogue(
+          prices: const {'pro_monthly': 30.0, 'business_annual': 300.0},
+        ),
+        activeProducts: const ['pro_sub:monthly'],
+      );
 
-        expect(await rail.purchase('business_annual', context: _tiers), isTrue);
-        expect(
-          rail.productChanges.single,
-          change('pro_sub', StoreReplacementMode.chargeFullPrice),
-        );
-        expect(rail.lastChangeTiming, StoreChangeTiming.immediate);
-      },
-    );
+      expect(await rail.purchase('business_annual', context: _tiers), isTrue);
+      expect(
+        rail.productChanges.single,
+        change('pro_sub', StoreReplacementMode.chargeFullPrice),
+      );
+      expect(rail.lastChangeTiming, StoreChangeTiming.immediate);
+    });
 
     test(
       'a higher tier at the same price per day is charged in full',

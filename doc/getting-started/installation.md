@@ -33,7 +33,7 @@ Add the package to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  magic_payments: ^0.0.12
+  magic_payments: ^0.1.0
 ```
 
 Then fetch dependencies:
@@ -43,8 +43,8 @@ flutter pub get
 ```
 
 > [!NOTE]
-> The public API is still settling ahead of a `0.1.0` release. Pin an exact version
-> (`magic_payments: 0.0.12`) if you depend on it before then, the same caution the package's own
+> The public API is still settling during the `0.1.x` line. Pin an exact version
+> (`magic_payments: 0.1.0`) if you depend on it, the same caution the package's own
 > README carries.
 
 ---
@@ -116,7 +116,7 @@ Which rail is present is decided by the package's own conditional-import factory
 
 ## <a name="cli"></a>CLI Setup
 
-Magic Payments ships three CLI commands on `fluttersdk_artisan`: `install`, `configure` and
+Magic Payments ships three CLI commands on `dowel`: `install`, `configure` and
 `doctor`.
 
 ```bash
